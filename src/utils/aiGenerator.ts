@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { Question } from '../types/index.ts';
+import { cleanQuestionMath, cleanMathNotation } from './mathUtils.ts';
 
 interface GenerateOptions {
   title: string;
@@ -43,9 +44,11 @@ ${pdfContent.slice(0, 3000) || 'Dựa trên kiến thức chuẩn SGK về chủ
 
 ${elemGuide}
 
-Quy tắc trình bày chữ & công thức khoa học (RẤT QUAN TRỌNG):
-- Khi viết công thức toán học, ký hiệu tập hợp, số học (ví dụ: tập hợp số tự nhiên khác 0 $\\mathbb{N}^*$, tập số tự nhiên $\\mathbb{N}$, phân số $\\frac{a}{b}$, phép nhân $\\times$, phép chia $:$, dấu $\\ge, \\le, \\neq$), hãy luôn kẹp trong cặp dấu $...$ theo chuẩn LaTeX để giao diện hiển thị sắc nét, không bị lỗi font chữ.
-- Trong JSON, hãy escape các dấu gạch chéo ngược đúng chuẩn (ví dụ: "\\\\mathbb{N}^*" thay vì "\\mathbb{N}^*").
+QUY TẮC BẮT BUỘC VỀ SỐ HỌC & CÔNG THỨC TOÁN (RẤT QUAN TRỌNG):
+1. TUYỆT ĐỐI KHÔNG kẹp các số tự nhiên, số thập phân hoặc số phân cách hàng nghìn trong cặp dấu $...$ hay dùng $...\\;...$ (Ví dụ: viết '45 678' hoặc '45.678', TUYỆT ĐỐI KHÔNG được viết '$45\\;678$', '$45\\,678$' hay '$45678$').
+2. TUYỆT ĐỐI KHÔNG kẹp nhãn lựa chọn đáp án hoặc văn bản thông thường trong dấu $...$ (Ví dụ: viết 'A. 45 678', KHÔNG được viết '$A. 45\\;678$').
+3. CHỈ dùng cặp dấu $...$ cho công thức toán học thực sự có ký hiệu đặc biệt như: phân số $\\frac{a}{b}$, căn thức $\\sqrt{x}$, số mũ $x^2$, hình học, biến số ($x, y$), ký hiệu tập hợp ($\\mathbb{N}^*, \\in, \\subset, \\ge, \\le, \\neq, \\Delta$).
+4. Trong JSON, hãy escape các dấu gạch chéo ngược đúng chuẩn (ví dụ: "\\\\mathbb{N}^*" thay vì "\\mathbb{N}^*").
 
 Hãy trả về DUY NHẤT một mảng JSON thuần túy (không kèm markdown \`\`\`json) theo đúng cấu trúc sau:
 [
@@ -77,7 +80,7 @@ Hãy trả về DUY NHẤT một mảng JSON thuần túy (không kèm markdown 
       const text = response.text?.trim() || '';
       const parsed = parseJsonWithMath(text);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((item, idx) => ({
+        return parsed.map((item, idx) => cleanQuestionMath({
           ...item,
           id: `gen-${Date.now()}-${idx + 1}`,
         }));
@@ -88,7 +91,8 @@ Hãy trả về DUY NHẤT một mảng JSON thuần túy (không kèm markdown 
   }
 
   // Fallback: Smart Vietnamese curriculum contextual generator
-  return generateContextualQuestions(title, subject, grade, pdfContent, mcCount, essayCount);
+  const rawQuestions = generateContextualQuestions(title, subject, grade, pdfContent, mcCount, essayCount);
+  return rawQuestions.map((q) => cleanQuestionMath(q));
 }
 
 /**
@@ -531,9 +535,48 @@ function generateContextualQuestions(
     );
   }
 
-  // Adjust total points to nice sum
-  const mcSlice = result.filter((q) => q.type === 'multiple_choice').slice(0, mcCount);
-  const essaySlice = result.filter((q) => q.type === 'essay').slice(0, essayCount);
+  // Ensure exact mcCount and essayCount are fulfilled
+  const mcPool = result.filter((q) => q.type === 'multiple_choice');
+  const essayPool = result.filter((q) => q.type === 'essay');
 
-  return [...mcSlice, ...essaySlice];
+  const finalMC: Question[] = [];
+  for (let i = 0; i < mcCount; i++) {
+    if (i < mcPool.length) {
+      finalMC.push(mcPool[i]);
+    } else {
+      finalMC.push({
+        id: `${prefix}-mc-${i + 1}`,
+        type: 'multiple_choice',
+        content: `Câu hỏi trắc nghiệm ôn tập số ${i + 1} về chủ đề "${safeTitle}": Khẳng định hoặc kết quả nào sau đây là ĐÚNG nhất theo chương trình ${grade} môn ${subject}?`,
+        options: [
+          `A. Khẳng định chính xác theo định lý và kiến thức bài học`,
+          `B. Khẳng định chưa chính xác do nhầm lẫn điều kiện`,
+          `C. Khẳng định thiếu tính tổng quát`,
+          `D. Không đủ dữ kiện để kết luận`,
+        ],
+        correctOptionIndex: 0,
+        points: 1.5,
+        explanation: `Vận dụng đúng kiến thức trọng tâm của bài học "${safeTitle}" thuộc chương trình ${grade}.`,
+      });
+    }
+  }
+
+  const finalEssay: Question[] = [];
+  for (let j = 0; j < essayCount; j++) {
+    if (j < essayPool.length) {
+      finalEssay.push(essayPool[j]);
+    } else {
+      finalEssay.push({
+        id: `${prefix}-essay-${j + 1}`,
+        type: 'essay',
+        content: `Câu hỏi tự luận vận dụng số ${j + 1}: Dựa vào bài học "${safeTitle}", em hãy trình bày các bước giải quyết một bài toán/vấn đề thực tế hoặc viết đoạn văn làm rõ yêu cầu của đề bài.`,
+        points: 2.0,
+        rubric: 'Nêu đúng phương pháp (1.0đ) + Trình bày lời giải / đoạn văn đầy đủ, mạch lạc (1.0đ)',
+        sampleAnswer: `Trình bày chi tiết các bước lập luận, biến đổi hoặc câu văn làm rõ chủ đề bài học "${safeTitle}".`,
+        keywords: ['bước giải', 'lập luận', 'thực tế', 'kết luận'],
+      });
+    }
+  }
+
+  return [...finalMC, ...finalEssay];
 }

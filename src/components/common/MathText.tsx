@@ -1,5 +1,6 @@
 import React from 'react';
 import katex from 'katex';
+import { cleanMathNotation } from '../../utils/mathUtils.ts';
 
 interface MathTextProps {
   text: string | undefined | null;
@@ -18,6 +19,9 @@ export const MathText: React.FC<MathTextProps> = ({
   as: Component = 'span',
 }) => {
   if (!text) return null;
+
+  // Clean numbers wrapped unnecessarily in LaTeX dollar signs ($45\;678$ -> 45 678)
+  const sanitizedText = cleanMathNotation(text);
 
   // Render a math segment safely with KaTeX
   const renderMath = (mathCode: string, displayMode: boolean = false): string => {
@@ -39,7 +43,7 @@ export const MathText: React.FC<MathTextProps> = ({
   // 2. $...$ or \(...\) for inline math
   // 3. Raw LaTeX math keywords if not wrapped in $ (e.g., \mathbb{N}^*, \frac{a}{b}, x \in \mathbb{N})
   const segments: React.ReactNode[] = [];
-  let remaining = text;
+  let remaining = sanitizedText;
   let keyIndex = 0;
 
   // Regex matching:

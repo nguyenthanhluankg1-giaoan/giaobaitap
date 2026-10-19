@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { Assignment, Question } from '../../types/index.ts';
 import { generateQuestionsFromDoc } from '../../utils/aiGenerator.ts';
+import { cleanQuestionMath, cleanMathNotation } from '../../utils/mathUtils.ts';
 import { MathText } from '../common/MathText.tsx';
 import {
   X,
@@ -48,6 +49,10 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
   const [pdfFileSize, setPdfFileSize] = useState('');
   const [pdfContentExcerpt, setPdfContentExcerpt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Question counts configuration
+  const [mcCount, setMcCount] = useState<number>(4);
+  const [essayCount, setEssayCount] = useState<number>(2);
 
   // Questions state
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -228,8 +233,8 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
         grade,
         pdfContent: pdfContentExcerpt,
         pdfFileName,
-        mcCount: 4,
-        essayCount: 2,
+        mcCount: Number(mcCount) || 0,
+        essayCount: Number(essayCount) || 0,
       });
       setQuestions(generated);
     } catch (err) {
@@ -291,6 +296,12 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
     setQuestions((prev) => [...prev, newQ]);
   };
 
+  const handleSanitizeAllQuestions = () => {
+    setQuestions((prev) => prev.map((q) => cleanQuestionMath(q)));
+    setMathToast('Đã tự động làm sạch ký tự $45\\;678$ trên toàn bộ các câu hỏi!');
+    setTimeout(() => setMathToast(null), 3000);
+  };
+
   // Calculate total points
   const totalPoints = questions.reduce((acc, q) => acc + (q.points || 0), 0);
 
@@ -305,6 +316,8 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
       return;
     }
 
+    const sanitizedQuestions = questions.map((q) => cleanQuestionMath(q));
+
     const newAssignment: Assignment = {
       id: `assign-${Date.now()}`,
       title: title.trim(),
@@ -318,7 +331,7 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
       dueDate: new Date(dueDate).toISOString(),
       assignedTo: ['all'],
       assignedClass,
-      questions,
+      questions: sanitizedQuestions,
       totalPoints,
       createdAt: new Date().toISOString(),
       status: 'published',
@@ -554,8 +567,121 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
           <div className="bg-indigo-50/40 p-4 rounded-xl border border-indigo-200/80 space-y-4">
             <span className="font-bold text-xs uppercase text-indigo-700 tracking-wider flex items-center gap-1.5">
               <Upload className="w-4 h-4" />
-              2. Upload File PDF Tài Liệu & Kích Hoạt Sinh Câu Hỏi Thông Minh
+              2. Cấu Hình Số Lượng & Upload Tài Liệu Sinh Đề AI
             </span>
+
+            {/* Question count configuration card */}
+            <div className="bg-white p-3.5 rounded-xl border border-indigo-100 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-indigo-600" />
+                  <span>Cấu hình số lượng câu hỏi AI tạo theo yêu cầu:</span>
+                </label>
+                <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-[11px] font-bold">
+                  Tổng cộng: {Number(mcCount || 0) + Number(essayCount || 0)} câu ({mcCount} trắc nghiệm, {essayCount} tự luận)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* MCQ count input */}
+                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700">Số câu trắc nghiệm (MCQ):</span>
+                    <span className="text-[10px] text-slate-500 font-medium">(0 - 50 câu)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMcCount((prev) => Math.max(0, prev - 1))}
+                      className="w-7 h-7 rounded bg-white border border-slate-300 hover:bg-slate-100 font-bold text-slate-700 flex items-center justify-center cursor-pointer shadow-2xs"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      max="50"
+                      value={mcCount}
+                      onChange={(e) => setMcCount(Math.max(0, Math.min(50, parseInt(e.target.value) || 0)))}
+                      className="w-16 px-2 py-1 border border-slate-300 rounded text-center text-xs font-bold bg-white focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setMcCount((prev) => Math.min(50, prev + 1))}
+                      className="w-7 h-7 rounded bg-white border border-slate-300 hover:bg-slate-100 font-bold text-slate-700 flex items-center justify-center cursor-pointer shadow-2xs"
+                    >
+                      +
+                    </button>
+
+                    <div className="flex items-center gap-1 ml-auto">
+                      {[4, 8, 10, 15, 20].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setMcCount(num)}
+                          className={`px-1.5 py-0.5 text-[10px] font-semibold rounded cursor-pointer transition-colors ${
+                            mcCount === num
+                              ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Essay count input */}
+                <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700">Số câu tự luận (Essay):</span>
+                    <span className="text-[10px] text-slate-500 font-medium">(0 - 20 câu)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEssayCount((prev) => Math.max(0, prev - 1))}
+                      className="w-7 h-7 rounded bg-white border border-slate-300 hover:bg-slate-100 font-bold text-slate-700 flex items-center justify-center cursor-pointer shadow-2xs"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      max="20"
+                      value={essayCount}
+                      onChange={(e) => setEssayCount(Math.max(0, Math.min(20, parseInt(e.target.value) || 0)))}
+                      className="w-16 px-2 py-1 border border-slate-300 rounded text-center text-xs font-bold bg-white focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setEssayCount((prev) => Math.min(20, prev + 1))}
+                      className="w-7 h-7 rounded bg-white border border-slate-300 hover:bg-slate-100 font-bold text-slate-700 flex items-center justify-center cursor-pointer shadow-2xs"
+                    >
+                      +
+                    </button>
+
+                    <div className="flex items-center gap-1 ml-auto">
+                      {[0, 2, 3, 5, 10].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => setEssayCount(num)}
+                          className={`px-1.5 py-0.5 text-[10px] font-semibold rounded cursor-pointer transition-colors ${
+                            essayCount === num
+                              ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {num}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Drop area */}
@@ -613,7 +739,7 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
                     <span>
                       {isGenerating
                         ? 'Đang phân tích PDF & sinh câu hỏi...'
-                        : 'Tự Động Sinh Câu Hỏi Trắc Nghiệm & Tự Luận'}
+                        : `Sinh AI ${mcCount} Trắc Nghiệm & ${essayCount} Tự Luận`}
                     </span>
                   </button>
                 </div>
@@ -690,6 +816,16 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleSanitizeAllQuestions}
+                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center gap-1 cursor-pointer mr-1 shrink-0"
+                    title="Tự động loại bỏ các ký tự $45\;678$ rườm rà trên toàn bộ câu hỏi"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Tự động sửa $45\;678$ ➜ 45 678</span>
+                  </button>
+
                   {COMMON_MATH_SYMBOLS.map((sym, idx) => (
                     <button
                       key={idx}
