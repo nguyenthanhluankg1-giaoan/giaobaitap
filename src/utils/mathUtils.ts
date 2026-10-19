@@ -1,12 +1,46 @@
 /**
- * Utility functions for cleaning and formatting math and number notation in Vietnamese educational context.
- * Fixes common LLM output issues like wrapping simple numbers in LaTeX math delimiters ($45\;678$ -> 45 678).
+ * Utility functions for cleaning and formatting math, fractions, and number notation in Vietnamese educational context.
+ * Fixes common issues like unwrapped LaTeX fractions (\frac{7}{10} -> $\frac{7}{10}$),
+ * unwrapped unit exponents (m^2 -> $\text{m}^2$), and over-wrapped plain numbers ($45\;678$ -> 45 678).
  */
+
+export function fixUnwrappedFractions(input: string | undefined | null): string {
+  if (!input) return '';
+
+  let text = String(input);
+
+  // 1. Wrap unwrapped \frac{A}{B} in $ ... $ if not already wrapped in $ ... $
+  let prev = '';
+  while (prev !== text) {
+    prev = text;
+    text = text.replace(/(?<!\$)\\frac\{([^{}]+)\}\{([^{}]+)\}(?!\$)/g, '$\\frac{$1}{$2}$');
+  }
+
+  // 2. Fix double dollar signs on fractions like $$\frac{a}{b}$$ when intended for inline
+  text = text.replace(/\$\$\s*(\\frac\{[^{}]+\}\{[^{}]+\})\s*\$\$/g, '$$1$');
+
+  // 3. Fix unwrapped unit exponents (m^2, cm^2, dm^2, mm^2, km^2, m^3, cm^3) and variable exponents (x^2, y^2, a^2)
+  text = text.replace(/(?<!\$)\b(m|cm|dm|mm|km|ha)\^([23])\b(?!\$)/g, '$\\text{$1}^$2$');
+  text = text.replace(/(?<!\$)\b([a-zA-Z])\^([0-9a-zA-Z]+)\b(?!\$)/g, '$$1^$2$');
+
+  // 4. Merge adjacent fraction comparison or equation blocks:
+  // e.g., "$\frac{7}{10}$ = $\frac{70}{100}$" -> "$\frac{7}{10} = \frac{70}{100}$"
+  // "$\frac{70}{100}$ > $\frac{68}{100}$" -> "$\frac{70}{100} > \frac{68}{100}$"
+  text = text.replace(
+    /\$\s*(\\frac\{[^{}]+\}\{[^{}]+\})\s*\$\s*(=|>|<|\ge|\le|\+|\-|\*|\/|:)\s*\$\s*(\\frac\{[^{}]+\}\{[^{}]+\})\s*\$/g,
+    '$$1 $2 $3$'
+  );
+
+  return text;
+}
 
 export function cleanMathNotation(input: string | undefined | null): string {
   if (!input) return '';
 
   let text = String(input);
+
+  // First, auto-fix unwrapped LaTeX fractions, exponents, and equations
+  text = fixUnwrappedFractions(text);
 
   // 1. Fix escaped backslashes or double-escaped LaTeX spacing commands
   text = text.replace(/\\\\;/g, '\\;').replace(/\\\\,/g, '\\,');

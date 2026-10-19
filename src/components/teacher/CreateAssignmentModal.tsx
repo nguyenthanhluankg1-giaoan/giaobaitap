@@ -842,10 +842,10 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
                     type="button"
                     onClick={handleSanitizeAllQuestions}
                     className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center gap-1 cursor-pointer mr-1 shrink-0"
-                    title="Tự động loại bỏ các ký tự $45\;678$ rườm rà trên toàn bộ câu hỏi"
+                    title="Tự động bọc phân số trong $...$ và loại bỏ ký tự $45\;678$ rườm rà trên toàn bộ câu hỏi"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>Tự động sửa $45\;678$ ➜ 45 678</span>
+                    <span>{"Sửa lỗi Phân số (\\frac{a}{b}) & Chuẩn hóa số"}</span>
                   </button>
 
                   {COMMON_MATH_SYMBOLS.map((sym, idx) => (

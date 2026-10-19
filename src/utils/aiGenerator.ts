@@ -74,8 +74,8 @@ ${elemGuide}
 QUY TẮC BẮT BUỘC VỀ SỐ HỌC & CÔNG THỨC TOÁN (RẤT QUAN TRỌNG):
 1. TUYỆT ĐỐI KHÔNG kẹp các số tự nhiên, số thập phân hoặc số phân cách hàng nghìn trong cặp dấu $...$ hay dùng $...\\;...$ (Ví dụ: viết '45 678' hoặc '45.678', TUYỆT ĐỐI KHÔNG được viết '$45\\;678$', '$45\\,678$' hay '$45678$').
 2. TUYỆT ĐỐI KHÔNG kẹp nhãn lựa chọn đáp án hoặc văn bản thông thường trong dấu $...$ (Ví dụ: viết 'A. 45 678', KHÔNG được viết '$A. 45\\;678$').
-3. CHỈ dùng cặp dấu $...$ cho công thức toán học thực sự có ký hiệu đặc biệt như: phân số $\\frac{a}{b}$, căn thức $\\sqrt{x}$, số mũ $x^2$, hình học, biến số ($x, y$), ký hiệu tập hợp ($\\mathbb{N}^*, \\in, \\subset, \\ge, \\le, \\neq, \\Delta$).
-4. Trong JSON, hãy escape các dấu gạch chéo ngược đúng chuẩn (ví dụ: "\\\\mathbb{N}^*" thay vì "\\mathbb{N}^*").
+3. BẮT BUỘC kẹp các phân số, biểu thức phân số, căn thức và đơn vị diện tích/thể tích trong cặp dấu $...$ (Ví dụ: viết '$\\frac{7}{10}$', '$\\frac{70}{100}$', '$\\frac{7}{10} = \\frac{70}{100}$', '$\\text{m}^2$', '$\\text{cm}^2$', '$\\sqrt{x}$', '$x^2$', '$\\ge$', '$\\le$', '$\\neq$', '$\\Delta$').
+4. Trong JSON, hãy escape các dấu gạch chéo ngược đúng chuẩn (ví dụ: "\\\\frac{7}{10}" hay "\\\\mathbb{N}^*").
 
 Hãy trả về DUY NHẤT một mảng JSON thuần túy (không kèm markdown \`\`\`json) theo đúng cấu trúc sau:
 [
