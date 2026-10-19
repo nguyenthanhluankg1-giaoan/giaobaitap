@@ -50,42 +50,42 @@ export const ViewResultModal: React.FC<Props> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col border border-slate-200 animate-in fade-in zoom-in-95 duration-100">
+    <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 overflow-hidden">
+      <div className="bg-white w-full h-full sm:h-auto sm:max-h-[94vh] sm:max-w-4xl sm:rounded-2xl shadow-2xl flex flex-col border-0 sm:border border-slate-200 animate-in fade-in zoom-in-95 duration-100 overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/80 rounded-t-2xl">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+        <div className="px-4 sm:px-6 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50/90 shrink-0">
+          <div className="flex items-center gap-2.5 truncate">
+            <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold shrink-0">
               <Award className="w-5 h-5 text-indigo-600" />
             </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900">
+            <div className="truncate">
+              <h2 className="text-xs sm:text-base font-bold text-slate-900 truncate">
                 Kết Quả Bài Làm & Nhận Xét Của Giáo Viên
               </h2>
-              <p className="text-xs text-slate-500">{assignment.title}</p>
+              <p className="text-[11px] sm:text-xs text-slate-500 truncate">{assignment.title}</p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-lg"
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-lg cursor-pointer shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="overflow-y-auto p-6 space-y-6 flex-1 text-slate-800 text-xs">
+        <div className="overflow-y-auto p-3.5 sm:p-6 space-y-4 sm:space-y-6 flex-1 text-slate-800 text-xs">
           {/* Score Header Card */}
-          <div className={`p-6 rounded-2xl bg-gradient-to-r ${gradeColor} text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4`}>
+          <div className={`p-4 sm:p-6 rounded-2xl bg-gradient-to-r ${gradeColor} text-white shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4`}>
             <div>
               <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white/20 text-white backdrop-blur-xs">
                 Xếp loại: {gradeLabel}
               </span>
-              <h3 className="text-2xl sm:text-3xl font-black mt-1">
+              <h3 className="text-xl sm:text-3xl font-black mt-1">
                 {submission.totalScore} / {submission.maxScore} Điểm
               </h3>
-              <p className="text-white/80 text-xs mt-0.5">
+              <p className="text-white/80 text-[11px] sm:text-xs mt-0.5">
                 Đạt {percentage}% tổng điểm • Thời gian làm: {Math.round(submission.timeSpentSeconds / 60)} phút
               </p>
             </div>
