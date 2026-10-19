@@ -118,26 +118,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
+      const currentId = localStorage.getItem(CURRENT_USER_KEY);
+      if (!currentId || currentId === 'LOGGED_OUT') {
+        return null;
+      }
+
       // 1. Try reading full user object saved in localStorage
       const storedUserObj = localStorage.getItem(CURRENT_USER_OBJ_KEY);
       if (storedUserObj) {
         const parsed = JSON.parse(storedUserObj) as User;
-        if (parsed && parsed.id) return parsed;
+        if (parsed && parsed.id === currentId) return parsed;
       }
 
       // 2. Try looking up current user ID in local users or initial users
-      const currentId = localStorage.getItem(CURRENT_USER_KEY);
-      if (currentId) {
-        const storedUsers = localStorage.getItem(LOCAL_USERS_KEY);
-        const usersList: User[] = storedUsers ? JSON.parse(storedUsers) : INITIAL_USERS;
-        const found =
-          usersList.find((u) => u.id === currentId) || INITIAL_USERS.find((u) => u.id === currentId);
-        if (found) return found;
-      }
+      const storedUsers = localStorage.getItem(LOCAL_USERS_KEY);
+      const usersList: User[] = storedUsers ? JSON.parse(storedUsers) : INITIAL_USERS;
+      const found =
+        usersList.find((u) => u.id === currentId) || INITIAL_USERS.find((u) => u.id === currentId);
+      if (found) return found;
 
-      return INITIAL_USERS.find((u) => u.role === 'teacher') || INITIAL_USERS[0] || null;
+      return null;
     } catch {
-      return INITIAL_USERS.find((u) => u.role === 'teacher') || INITIAL_USERS[0] || null;
+      return null;
     }
   });
 
@@ -195,15 +197,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Listen to real-time changes from Firestore
       unsubscribeUsers = subscribeToUsers((freshUsers) => {
         if (freshUsers.length > 0) {
-          setUsers(freshUsers);
-          try {
-            localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(freshUsers));
-          } catch {}
+          setUsers((prev) => {
+            const map = new Map<string, User>();
+            for (const u of INITIAL_USERS) map.set(u.id, u);
+            for (const u of prev) map.set(u.id, u);
+            for (const u of freshUsers) map.set(u.id, u);
+            const merged = Array.from(map.values());
+            try {
+              localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
 
           setCurrentUser((curr) => {
             const savedId = localStorage.getItem(CURRENT_USER_KEY);
             const targetId = curr?.id || savedId;
-            if (targetId) {
+            if (targetId && targetId !== 'LOGGED_OUT') {
               const updated = freshUsers.find((u) => u.id === targetId);
               if (updated) return updated;
             }
@@ -213,21 +222,52 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
 
       unsubscribeAssignments = subscribeToAssignments((freshAssignments) => {
-        if (freshAssignments.length > 0) {
-          try {
-            const storedDeleted = localStorage.getItem(DELETED_ASSIGNMENTS_KEY);
-            const deletedIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
-            const filtered = freshAssignments.filter((a) => !deletedIds.includes(a.id));
-            setAssignments(filtered);
-            localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(filtered));
-          } catch {
+        try {
+          const storedDeleted = localStorage.getItem(DELETED_ASSIGNMENTS_KEY);
+          const deletedIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
+
+          setAssignments((prev) => {
+            const map = new Map<string, Assignment>();
+            for (const a of prev) {
+              if (!deletedIds.includes(a.id)) {
+                map.set(a.id, a);
+              }
+            }
+            for (const a of freshAssignments) {
+              if (!deletedIds.includes(a.id)) {
+                map.set(a.id, a);
+              }
+            }
+            const merged = Array.from(map.values());
+            merged.sort(
+              (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+            );
+            try {
+              localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        } catch {
+          if (freshAssignments.length > 0) {
             setAssignments(freshAssignments);
           }
         }
       });
 
       unsubscribeSubmissions = subscribeToSubmissions((freshSubmissions) => {
-        setSubmissions(freshSubmissions);
+        setSubmissions((prev) => {
+          const map = new Map<string, Submission>();
+          for (const s of prev) map.set(s.id, s);
+          for (const s of freshSubmissions) map.set(s.id, s);
+          const merged = Array.from(map.values());
+          merged.sort(
+            (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
+          );
+          try {
+            localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(merged));
+          } catch {}
+          return merged;
+        });
       });
     }
 
@@ -251,6 +291,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const logout = () => {
+    try {
+      localStorage.setItem(CURRENT_USER_KEY, 'LOGGED_OUT');
+      localStorage.removeItem(CURRENT_USER_OBJ_KEY);
+    } catch {}
     setCurrentUser(null);
   };
 
@@ -280,13 +324,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: new Date().toISOString(),
     };
 
-    setUsers((prev) => [...prev, newTeacher]);
+    setUsers((prev) => {
+      const next = [...prev, newTeacher];
+      try {
+        localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     await saveUserToFirestore(newTeacher);
     return newTeacher;
   };
 
   const deleteTeacher = async (teacherId: string) => {
-    setUsers((prev) => prev.filter((u) => u.id !== teacherId));
+    setUsers((prev) => {
+      const next = prev.filter((u) => u.id !== teacherId);
+      try {
+        localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     if (currentUser?.id === teacherId) {
       const admin = users.find((u) => u.role === 'admin') || users[0];
       setCurrentUser(admin || null);
@@ -314,14 +370,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: new Date().toISOString(),
     };
 
-    setUsers((prev) => [...prev, newStudent]);
+    setUsers((prev) => {
+      const next = [...prev, newStudent];
+      try {
+        localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     await saveUserToFirestore(newStudent);
     return newStudent;
   };
 
   const deleteStudent = async (studentId: string) => {
-    setUsers((prev) => prev.filter((u) => u.id !== studentId));
-    setSubmissions((prev) => prev.filter((s) => s.studentId !== studentId));
+    setUsers((prev) => {
+      const next = prev.filter((u) => u.id !== studentId);
+      try {
+        localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+    setSubmissions((prev) => {
+      const next = prev.filter((s) => s.studentId !== studentId);
+      try {
+        localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     if (currentUser?.id === studentId) {
       const teacher = users.find((u) => u.role === 'teacher');
       setCurrentUser(teacher || null);
@@ -330,12 +404,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const addAssignment = async (newAssignment: Assignment) => {
-    setAssignments((prev) => [newAssignment, ...prev]);
+    setAssignments((prev) => {
+      const next = [newAssignment, ...prev.filter((a) => a.id !== newAssignment.id)];
+      try {
+        localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     await saveAssignmentToFirestore(newAssignment);
   };
 
   const updateAssignment = async (updated: Assignment) => {
-    setAssignments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+    setAssignments((prev) => {
+      const next = prev.map((a) => (a.id === updated.id ? updated : a));
+      try {
+        localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
     await saveAssignmentToFirestore(updated);
   };
 
@@ -359,7 +445,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     } catch {}
 
-    setSubmissions((prev) => prev.filter((s) => s.assignmentId !== assignmentId));
+    setSubmissions((prev) => {
+      const next = prev.filter((s) => s.assignmentId !== assignmentId);
+      try {
+        localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
 
     // 3. Delete from Firestore
     await deleteAssignmentFromFirestore(assignmentId);
@@ -422,7 +514,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const filtered = prev.filter(
         (s) => !(s.assignmentId === assignmentId && s.studentId === currentUser.id)
       );
-      return [submission, ...filtered];
+      const next = [submission, ...filtered];
+      try {
+        localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
     });
 
     await saveSubmissionToFirestore(submission);
@@ -451,9 +547,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       teacherFeedback,
     };
 
-    setSubmissions((prev) =>
-      prev.map((s) => (s.id === submissionId ? updatedSub : s))
-    );
+    setSubmissions((prev) => {
+      const next = prev.map((s) => (s.id === submissionId ? updatedSub : s));
+      try {
+        localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
 
     await saveSubmissionToFirestore(updatedSub);
   };
