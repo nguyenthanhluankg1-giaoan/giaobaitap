@@ -62,12 +62,25 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const CURRENT_USER_KEY = 'eduhomework_current_user_id_v5';
+const CURRENT_USER_OBJ_KEY = 'eduhomework_current_user_obj_v5';
+const LOCAL_USERS_KEY = 'eduhomework_users_v5';
 const LOCAL_ASSIGNMENTS_KEY = 'eduhomework_assignments_v5';
 const DELETED_ASSIGNMENTS_KEY = 'eduhomework_deleted_assignments_v5';
 const LOCAL_SUBMISSIONS_KEY = 'eduhomework_submissions_v5';
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [users, setUsers] = useState<User[]>(INITIAL_USERS);
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const stored = localStorage.getItem(LOCAL_USERS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as User[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return INITIAL_USERS;
+    } catch {
+      return INITIAL_USERS;
+    }
+  });
 
   // Initialize assignments with localStorage cache and deleted IDs filter
   const [assignments, setAssignments] = useState<Assignment[]>(() => {
@@ -105,14 +118,26 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
+      // 1. Try reading full user object saved in localStorage
+      const storedUserObj = localStorage.getItem(CURRENT_USER_OBJ_KEY);
+      if (storedUserObj) {
+        const parsed = JSON.parse(storedUserObj) as User;
+        if (parsed && parsed.id) return parsed;
+      }
+
+      // 2. Try looking up current user ID in local users or initial users
       const currentId = localStorage.getItem(CURRENT_USER_KEY);
       if (currentId) {
-        const found = INITIAL_USERS.find((u) => u.id === currentId);
+        const storedUsers = localStorage.getItem(LOCAL_USERS_KEY);
+        const usersList: User[] = storedUsers ? JSON.parse(storedUsers) : INITIAL_USERS;
+        const found =
+          usersList.find((u) => u.id === currentId) || INITIAL_USERS.find((u) => u.id === currentId);
         if (found) return found;
       }
+
       return INITIAL_USERS.find((u) => u.role === 'teacher') || INITIAL_USERS[0] || null;
     } catch {
-      return INITIAL_USERS[0] || null;
+      return INITIAL_USERS.find((u) => u.role === 'teacher') || INITIAL_USERS[0] || null;
     }
   });
 
@@ -120,10 +145,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(CURRENT_USER_KEY, currentUser.id);
+      localStorage.setItem(CURRENT_USER_OBJ_KEY, JSON.stringify(currentUser));
     } else {
       localStorage.removeItem(CURRENT_USER_KEY);
+      localStorage.removeItem(CURRENT_USER_OBJ_KEY);
     }
   }, [currentUser]);
+
+  // Persist users to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+    } catch (e) {
+      console.error('Failed to save users to localStorage', e);
+    }
+  }, [users]);
 
   // Persist assignments to localStorage
   useEffect(() => {
@@ -160,10 +196,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubscribeUsers = subscribeToUsers((freshUsers) => {
         if (freshUsers.length > 0) {
           setUsers(freshUsers);
+          try {
+            localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(freshUsers));
+          } catch {}
+
           setCurrentUser((curr) => {
-            if (!curr) return curr;
-            const updated = freshUsers.find((u) => u.id === curr.id);
-            return updated || curr;
+            const savedId = localStorage.getItem(CURRENT_USER_KEY);
+            const targetId = curr?.id || savedId;
+            if (targetId) {
+              const updated = freshUsers.find((u) => u.id === targetId);
+              if (updated) return updated;
+            }
+            return curr;
           });
         }
       });
@@ -420,6 +464,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.removeItem(LOCAL_ASSIGNMENTS_KEY);
       localStorage.removeItem(LOCAL_SUBMISSIONS_KEY);
       localStorage.removeItem(CURRENT_USER_KEY);
+      localStorage.removeItem(CURRENT_USER_OBJ_KEY);
+      localStorage.removeItem(LOCAL_USERS_KEY);
     } catch {}
     setUsers(INITIAL_USERS);
     setAssignments(INITIAL_ASSIGNMENTS);

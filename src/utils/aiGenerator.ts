@@ -19,22 +19,28 @@ export async function testGeminiApiKey(testKey: string): Promise<{ success: bool
   if (!testKey || !testKey.trim()) {
     return { success: false, message: 'Vui lòng nhập API key.' };
   }
-  try {
-    const ai = new GoogleGenAI({ apiKey: testKey.trim() });
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: 'Xin chào, hãy phản hồi chữ OK.',
-    });
-    if (response.text) {
-      return { success: true, message: 'Kết nối Google Gemini API thành công! API Key hợp lệ và sẵn sàng tạo đề.' };
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  let lastError = '';
+
+  for (const model of modelsToTry) {
+    try {
+      const ai = new GoogleGenAI({ apiKey: testKey.trim() });
+      const response = await ai.models.generateContent({
+        model,
+        contents: 'Xin chào, hãy phản hồi chữ OK.',
+      });
+      if (response.text) {
+        return { success: true, message: `Kết nối Google Gemini API thành công (Mô hình: ${model})!` };
+      }
+    } catch (err: any) {
+      lastError = err.message || JSON.stringify(err);
     }
-    return { success: false, message: 'API key không phản hồi dữ liệu.' };
-  } catch (err: any) {
-    return {
-      success: false,
-      message: `Lỗi kết nối Gemini API: ${err.message || 'API Key không hợp lệ hoặc đã hết hạn.'}`,
-    };
   }
+
+  return {
+    success: false,
+    message: `Lỗi kết nối Gemini API: ${lastError || 'API Key không hợp lệ hoặc đã hết hạn.'}`,
+  };
 }
 
 /**
@@ -71,12 +77,19 @@ ${pdfContent.slice(0, 3000) || 'Dựa trên kiến thức chuẩn SGK về chủ
 
 ${elemGuide}
 
-QUY TẮC BẮT BUỘC VỀ SỐ HỌC, ĐƠN VỊ ĐO & CÔNG THỨC TOÁN (RẤT QUAN TRỌNG):
-1. TUYỆT ĐỐI KHÔNG kẹp các số tự nhiên, số thập phân hoặc số phân cách hàng nghìn trong cặp dấu $...$ hay dùng $...\\;...$ (Ví dụ: viết '45 678' hoặc '45.678', TUYỆT ĐỐI KHÔNG được viết '$45\\;678$', '$45\\,678$' hay '$45678$').
-2. TUYỆT ĐỐI KHÔNG kẹp nhãn lựa chọn đáp án hoặc văn bản thông thường trong dấu $...$ (Ví dụ: viết 'A. 45 678', KHÔNG được viết '$A. 45\\;678$').
-3. VỀ ĐƠN VỊ ĐO LƯỜNG (ha, m², cm², dm², mm², km², kg, g): Hãy viết trực tiếp dạng chữ thuần 'ha', 'm²', 'cm²', 'dm²', 'mm²', 'km²' (TUYỆT ĐỐI KHÔNG dùng '\\text{ha}', '$\\text{ha}$' hay '\\text{m}^2'). Phép nhân dùng '×', phép chia dùng ':' hoặc '÷' (Ví dụ: 'Vì 1 ha = 10 000 m² nên 5 ha = 5 × 10 000 = 50 000 m².').
-4. VỀ PHÂN SỐ VÀ HỖN SỐ: BẮT BUỘC bọc phân số hoặc hỗn số trong cặp dấu $...$ (Ví dụ: '$\\frac{30}{100}$', hỗn số '$3\\frac{2}{5}$', căn thức '$\\sqrt{x}$', lũy thừa '$x^2$', '$\\ge$', '$\\le$', '$\\neq$', '$\\Delta$').
-5. Trong JSON, hãy escape các dấu gạch chéo ngược đúng chuẩn (ví dụ: "\\\\frac{30}{100}" hay "\\\\mathbb{N}^*").
+QUY TẮC BẮT BUỘC VỀ TRÌNH BÀY CÔNG THỨC TOÁN HỌC BẰNG LATEX (CHUẨN SGK VIỆT NAM):
+1. BẮT BUỘC sử dụng cú pháp LaTeX chuẩn bọc trong duy nhất một cặp dấu $...$ cho toàn bộ biểu thức toán học:
+   - Phân số: '$\\frac{a}{b}$' (Ví dụ: '$\\frac{30}{100}$', '$\\frac{17}{5}$')
+   - Hỗn số: '$3\\frac{2}{5}$' (Bọc cả số nguyên lẫn phân số vào duy nhất một cặp dấu $)
+   - Căn thức, lũy thừa: '$\\sqrt{x}$', '$x^2$', '$10^3$'
+   - Phương trình, bất phương trình: '$x^2 - 4x + 3 = 0$', '$x \\ge 0$', '$a \\neq 0$'
+   - Ký hiệu & Tập hợp: '$\\mathbb{N}^*$', '$\\mathbb{R}$', '$\\in$', '$\\Delta$', '$\\alpha$'
+2. SỐ THẬP PHÂN & ĐƠN VỊ ĐO (SGK VIỆT NAM):
+   - Viết số thập phân bằng dấu phẩy tiếng Việt: '0,07', '3,14', '12,5' (TUYỆT ĐỐI KHÔNG bọc '$0,07$' hay dùng '0.07').
+   - Đơn vị đo lường viết chữ thuần: 'ha', 'm²', 'cm²', 'dm²', 'mm²', 'km²', 'kg', 'g' (TUYỆT ĐỐI KHÔNG dùng '\\text{ha}', '$\\text{ha}$' hay '\\text{m}^2').
+   - Phép tính số học viết '×', ':', '÷' (Ví dụ: '5 × 10 000 = 50 000 m².').
+3. TRẮC NGHIỆM: Trong mảng "options", CHỈ ghi nội dung đáp án (Ví dụ: ["$\\frac{17}{5}$", "$\\frac{15}{5}$", "$\\frac{13}{5}$", "$\\frac{11}{5}$"]), TUYỆT ĐỐI KHÔNG lặp lại chữ cái tiền tố 'A. ', 'B. ', 'C. ', 'D. ' bên trong đáp án.
+4. Trong JSON, hãy escape các dấu gạch chéo ngược đúng chuẩn (Ví dụ: "\\\\frac{30}{100}" hay "\\\\mathbb{N}^*").
 
 Hãy trả về DUY NHẤT một mảng JSON thuần túy (không kèm markdown \`\`\`json) theo đúng cấu trúc sau:
 [
@@ -100,18 +113,27 @@ Hãy trả về DUY NHẤT một mảng JSON thuần túy (không kèm markdown 
   }
 ]`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: prompt,
-      });
+      const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+      for (const model of modelsToTry) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: prompt,
+          });
 
-      const text = response.text?.trim() || '';
-      const parsed = parseJsonWithMath(text);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((item, idx) => cleanQuestionMath({
-          ...item,
-          id: `gen-${Date.now()}-${idx + 1}`,
-        }));
+          const text = response.text?.trim() || '';
+          const parsed = parseJsonWithMath(text);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.map((item, idx) =>
+              cleanQuestionMath({
+                ...item,
+                id: `gen-${Date.now()}-${idx + 1}`,
+              })
+            );
+          }
+        } catch (e) {
+          console.warn(`Model ${model} failed, trying next model...`);
+        }
       }
     } catch (err) {
       console.warn('Gemini API question generation fallback to local educational generator:', err);

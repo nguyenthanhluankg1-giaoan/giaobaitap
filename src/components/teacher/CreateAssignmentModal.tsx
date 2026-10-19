@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { Assignment, Question } from '../../types/index.ts';
 import { generateQuestionsFromDoc } from '../../utils/aiGenerator.ts';
-import { cleanQuestionMath, cleanMathNotation } from '../../utils/mathUtils.ts';
+import { cleanQuestionMath, cleanMathNotation, cleanOptionText } from '../../utils/mathUtils.ts';
+import { downloadSampleFile, parseQuestionsFile } from '../../utils/templateImporter.ts';
+import { extractTextFromPdf } from '../../utils/pdfParser.ts';
 import { MathText } from '../common/MathText.tsx';
 import { ApiKeyModal } from '../common/ApiKeyModal.tsx';
 import {
@@ -23,6 +25,14 @@ import {
   Calculator,
   Eye,
   Key,
+  Download,
+  FileSpreadsheet,
+  FolderUp,
+  Loader2,
+  FileUp,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
 } from 'lucide-react';
 
 interface Props {
@@ -46,11 +56,75 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
   });
   const [assignedClass, setAssignedClass] = useState('10A1');
 
-  // PDF upload state
+  // Enhanced PDF upload & text parsing state
   const [pdfFileName, setPdfFileName] = useState('');
   const [pdfFileSize, setPdfFileSize] = useState('');
+  const [pdfPagesCount, setPdfPagesCount] = useState(0);
+  const [pdfCharCount, setPdfCharCount] = useState(0);
+  const [pdfFullText, setPdfFullText] = useState('');
   const [pdfContentExcerpt, setPdfContentExcerpt] = useState('');
+  const [isParsingPdf, setIsParsingPdf] = useState(false);
+  const [showPdfTextPreview, setShowPdfTextPreview] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Handle PDF file selection / drag-and-drop
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processUploadedFile(file);
+  };
+
+  const processUploadedFile = async (file: File) => {
+    setIsParsingPdf(true);
+    setGenerationError('');
+
+    try {
+      if (file.name.toLowerCase().endsWith('.pdf')) {
+        const result = await extractTextFromPdf(file);
+        setPdfFileName(result.fileName);
+        setPdfFileSize(result.fileSizeFormatted);
+        setPdfPagesCount(result.numPages);
+        setPdfCharCount(result.text.length);
+        setPdfFullText(result.text);
+
+        const excerpt =
+          result.text.length > 400 ? result.text.substring(0, 400) + '...' : result.text;
+        setPdfContentExcerpt(excerpt);
+
+        if (!title.trim()) {
+          const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[_|-]/g, ' ');
+          setTitle(cleanName);
+        }
+      } else {
+        const text = await file.text();
+        setPdfFileName(file.name);
+        setPdfFileSize(`${(file.size / 1024).toFixed(1)} KB`);
+        setPdfPagesCount(1);
+        setPdfCharCount(text.length);
+        setPdfFullText(text);
+        setPdfContentExcerpt(text.length > 400 ? text.substring(0, 400) + '...' : text);
+
+        if (!title.trim()) {
+          setTitle(file.name.replace(/\.[^/.]+$/, '').replace(/[_|-]/g, ' '));
+        }
+      }
+    } catch (err) {
+      console.error('Lỗi khi xử lý file:', err);
+      setGenerationError('Có lỗi khi trích xuất nội dung file. Vui lòng kiểm tra định dạng file.');
+    } finally {
+      setIsParsingPdf(false);
+    }
+  };
+
+  const handleClearPdfFile = () => {
+    setPdfFileName('');
+    setPdfFileSize('');
+    setPdfPagesCount(0);
+    setPdfCharCount(0);
+    setPdfFullText('');
+    setPdfContentExcerpt('');
+    setShowPdfTextPreview(false);
+  };
 
   // Question counts configuration
   const [mcCount, setMcCount] = useState<number>(4);
@@ -63,6 +137,25 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
   // Questions state
   const [questions, setQuestions] = useState<Question[]>([]);
   const [generationError, setGenerationError] = useState('');
+  const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
+
+  const handleImportTemplateFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const imported = await parseQuestionsFile(file);
+      if (imported.length > 0) {
+        setQuestions((prev) => [...prev, ...imported]);
+        setImportSuccessMsg(`Đã nhập thành công ${imported.length} câu hỏi từ file "${file.name}"!`);
+        setTimeout(() => setImportSuccessMsg(null), 4500);
+      } else {
+        alert('Không tìm thấy câu hỏi hợp lệ trong file. Vui lòng kiểm tra định dạng theo đúng file mẫu!');
+      }
+    } catch (err) {
+      alert('Lỗi đọc file. Vui lòng sử dụng đúng định dạng file mẫu (.csv, .txt, .json).');
+    }
+  };
 
   // Math & Formula toolbar state
   const [showMathToolbar, setShowMathToolbar] = useState(true);
@@ -118,35 +211,7 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
 
   if (!isOpen) return null;
 
-  // Handle PDF file upload
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setPdfFileName(file.name);
-    const sizeInMb = (file.size / (1024 * 1024)).toFixed(1);
-    setPdfFileSize(`${sizeInMb} MB`);
-
-    // Auto-fill title from file name if empty
-    if (!title) {
-      const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[_|-]/g, ' ');
-      setTitle(cleanName);
-    }
-
-    // Read excerpt
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = (event.target?.result as string) || '';
-      // Excerpt preview (sample text or simulated text if binary)
-      const excerpt = text.length > 300 ? text.substring(0, 300) + '...' : text;
-      setPdfContentExcerpt(
-        excerpt.trim() || `Tài liệu PDF: ${file.name} đã được tải lên thành công. Sẵn sàng phân tích nội dung.`
-      );
-    };
-    reader.readAsText(file.slice(0, 5000));
-  };
-
-  // Sample quick PDF templates for testing
+  // Sample quick lesson title templates for testing
   const handleApplySampleDoc = (
     sampleType: 'toan3' | 'tv4' | 'kh5' | 'toan' | 'van' | 'anh' | 'ly'
   ) => {
@@ -155,78 +220,43 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
       setSubject('Toán học');
       setGrade('Lớp 3');
       setAssignedClass('3A1');
-      setPdfFileName('SGK_Toan3_BangNhanChia_LoiVan.pdf');
-      setPdfFileSize('1.5 MB');
-      setPdfContentExcerpt(
-        'Bài tập ôn luyện Toán lớp 3: Các phép tính cộng trừ nhân chia trong phạm vi 100.000, tính chu vi hình chữ nhật, hình vuông và bài toán rút về đơn vị hai bước tính.'
-      );
     } else if (sampleType === 'tv4') {
       setTitle('Tiếng Việt Lớp 4: Luyện Từ Và Câu & Miêu Tả Ngắn');
       setSubject('Ngữ văn');
       setGrade('Lớp 4');
       setAssignedClass('4A2');
-      setPdfFileName('TiengViet4_LuyenTuVaCau.pdf');
-      setPdfFileSize('2.1 MB');
-      setPdfContentExcerpt(
-        'Nhận biết danh từ, động từ, tính từ. Đặt câu cảm, câu hỏi và câu kể. Viết đoạn văn ngắn từ 3 đến 5 câu miêu tả loài cây hoặc con vật quen thuộc gần gũi.'
-      );
     } else if (sampleType === 'kh5') {
       setTitle('Khoa Học Lớp 5: Sử Dụng Năng Lượng & Bảo Vệ Môi Trường');
       setSubject('Sinh học');
       setGrade('Lớp 5');
       setAssignedClass('5B1');
-      setPdfFileName('KhoaHoc5_SuDungNangLuong.pdf');
-      setPdfFileSize('2.0 MB');
-      setPdfContentExcerpt(
-        'Tìm hiểu về năng lượng mặt trời, gió, nước chảy. Sự biến đổi chất từ dạng này sang dạng khác và quy tắc tiết kiệm điện năng sinh hoạt trong gia đình.'
-      );
     } else if (sampleType === 'toan') {
       setTitle('Chuyên đề: Hàm số bậc hai & Ứng dụng thực tiễn');
       setSubject('Toán học');
       setGrade('Lớp 10');
       setAssignedClass('10A1');
-      setPdfFileName('SGK_Toan10_HamSoBacHai.pdf');
-      setPdfFileSize('3.2 MB');
-      setPdfContentExcerpt(
-        'Khảo sát sự biến thiên và vẽ đồ thị hàm số y = ax² + bx + c (a ≠ 0). Tọa độ đỉnh I(-b/2a; -Δ/4a), trục đối xứng x = -b/2a. Ứng dụng mô hình hóa bài toán tầm xa vật ném và thiết kế cổng vòm parabol.'
-      );
     } else if (sampleType === 'van') {
       setTitle('Văn học Trung đại: Tác gia Nguyễn Trãi & Tác phẩm');
       setSubject('Ngữ văn');
       setGrade('Lớp 10');
       setAssignedClass('10A1');
-      setPdfFileName('Tai_Lieu_NguVan10_NguyenTrai.pdf');
-      setPdfFileSize('2.5 MB');
-      setPdfContentExcerpt(
-        'Nguyễn Trãi - người anh hùng dân tộc, danh nhân văn hóa thế giới. Sự nghiệp văn học phong phú bao gồm quân trung từ mệnh tập, đại cáo bình ngô, ức trai thi tập và quốc âm thi tập với tư tưởng nhân nghĩa cốt ở yên dân.'
-      );
     } else if (sampleType === 'anh') {
       setTitle('Global Warming & Environmental Protection');
       setSubject('Tiếng Anh');
       setGrade('Lớp 10');
       setAssignedClass('10A1');
-      setPdfFileName('English10_Unit9_ProtectingEnvironment.pdf');
-      setPdfFileSize('1.9 MB');
-      setPdfContentExcerpt(
-        'Greenhouse effect, carbon footprint, deforestation and renewable energy. Discussing individual responsibilities to preserve natural biodiversity and reduce plastic waste.'
-      );
     } else {
       setTitle('Định luật II Newton và Lực Ma sát');
       setSubject('Vật lý');
       setGrade('Lớp 10');
       setAssignedClass('10A1');
-      setPdfFileName('VatLy10_DongLucHoc_Newton.pdf');
-      setPdfFileSize('2.8 MB');
-      setPdfContentExcerpt(
-        'Gia tốc của một vật cùng hướng với lực tác dụng lên vật. Độ lớn của gia tốc tỉ lệ thuận với độ lớn của lực và tỉ lệ nghịch với khối lượng của vật: F = m*a.'
-      );
     }
   };
 
   // Trigger AI Question Generator
   const handleGenerateQuestions = async () => {
-    if (!title.trim()) {
-      setGenerationError('Vui lòng nhập tên bài tập trước khi tạo câu hỏi.');
+    if (!title.trim() && !pdfFileName) {
+      setGenerationError('Vui lòng nhập Tên bài học hoặc tải lên file PDF tài liệu trước khi nhấn sinh câu hỏi.');
       return;
     }
     setGenerationError('');
@@ -234,17 +264,17 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
 
     try {
       const generated = await generateQuestionsFromDoc({
-        title,
+        title: title.trim() || (pdfFileName ? pdfFileName.replace(/\.[^/.]+$/, '') : ''),
         subject,
         grade,
-        pdfContent: pdfContentExcerpt,
+        pdfContent: pdfFullText || pdfContentExcerpt,
         pdfFileName,
         mcCount: Number(mcCount) || 0,
         essayCount: Number(essayCount) || 0,
       });
       setQuestions(generated);
     } catch (err) {
-      setGenerationError('Có lỗi khi tạo câu hỏi. Đã chuyển sang bộ câu hỏi mẫu chuẩn.');
+      setGenerationError('Có lỗi khi tạo câu hỏi. Đã chuyển sang bộ câu hỏi mẫu chuẩn SGK.');
     } finally {
       setIsGenerating(false);
     }
@@ -304,8 +334,8 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
 
   const handleSanitizeAllQuestions = () => {
     setQuestions((prev) => prev.map((q) => cleanQuestionMath(q)));
-    setMathToast('Đã tự động làm sạch ký tự $45\\;678$ trên toàn bộ các câu hỏi!');
-    setTimeout(() => setMathToast(null), 3000);
+    setMathToast('Đã rà soát & tự động sửa toàn bộ câu hỏi theo đúng chuẩn SGK Việt Nam (ha, m², phân số, số học)!');
+    setTimeout(() => setMathToast(null), 3500);
   };
 
   // Calculate total points
@@ -313,12 +343,12 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
 
   // Save assignment to repository
   const handleSaveAssignment = () => {
-    if (!title.trim()) {
+    if (!title.trim() && !pdfFileName) {
       alert('Vui lòng nhập tên bài tập!');
       return;
     }
     if (questions.length === 0) {
-      alert('Bài tập cần có ít nhất 1 câu hỏi! Hãy nhấn nút "Tự Động Sinh Câu Hỏi từ PDF" hoặc thêm câu hỏi thủ công.');
+      alert('Bài tập cần có ít nhất 1 câu hỏi! Hãy nhấn nút "Sinh AI" hoặc thêm câu hỏi thủ công.');
       return;
     }
 
@@ -326,7 +356,7 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
 
     const newAssignment: Assignment = {
       id: `assign-${Date.now()}`,
-      title: title.trim(),
+      title: title.trim() || (pdfFileName ? pdfFileName.replace(/\.[^/.]+$/, '') : 'Bài tập mới'),
       subject,
       grade,
       description: description.trim() || `Bài tập về nhà môn ${subject} - ${grade}`,
@@ -705,67 +735,223 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* PDF Upload Dropzone & Status Area */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
               {/* Drop area */}
-              <label className="border-2 border-dashed border-indigo-300 hover:border-indigo-500 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer bg-white/70 hover:bg-white transition-colors group">
-                <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
-                  <Upload className="w-5 h-5" />
+              <label
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) processUploadedFile(file);
+                }}
+                className={`border-2 border-dashed rounded-xl p-3.5 flex flex-col items-center justify-center cursor-pointer transition-all group ${
+                  isParsingPdf
+                    ? 'border-indigo-400 bg-indigo-50/70'
+                    : 'border-indigo-300 hover:border-indigo-500 bg-white/80 hover:bg-white'
+                }`}
+              >
+                <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center mb-1.5 group-hover:scale-105 transition-transform shadow-2xs">
+                  {isParsingPdf ? (
+                    <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                  ) : (
+                    <Upload className="w-5 h-5 text-indigo-600" />
+                  )}
                 </div>
-                <span className="text-xs font-bold text-indigo-700">
-                  Nhấp để tải file PDF hoặc kéo thả vào đây
+                <span className="text-xs font-bold text-indigo-700 text-center">
+                  {isParsingPdf
+                    ? 'Đang trích xuất văn bản từ PDF...'
+                    : 'Kéo thả hoặc Bấm để tải file PDF / Sách Giáo Khoa'}
                 </span>
-                <span className="text-[11px] text-slate-500 mt-1">
-                  Hỗ trợ tài liệu SGK, đề thi mẫu, tóm tắt bài giảng (PDF, TXT)
+                <span className="text-[10px] text-slate-500 mt-0.5 text-center">
+                  Hỗ trợ file .pdf, .txt. Hệ thống tự động bóc tách từng trang nội dung SGK
                 </span>
                 <input
                   type="file"
-                  accept=".pdf,.txt"
+                  accept=".pdf,.txt,.doc,.docx"
                   onChange={handleFileUpload}
                   className="hidden"
                 />
               </label>
 
               {/* Uploaded File Status */}
-              <div className="bg-white p-3.5 rounded-xl border border-indigo-100 flex flex-col justify-between">
+              <div className="bg-white p-3 rounded-xl border border-indigo-100 flex flex-col justify-between">
                 <div>
-                  <div className="text-xs font-semibold text-slate-500 mb-1">Tài liệu đính kèm:</div>
-                  {pdfFileName ? (
-                    <div className="flex items-center gap-2 p-2 bg-indigo-50 rounded-lg border border-indigo-200/60">
-                      <FileText className="w-6 h-6 text-indigo-600 shrink-0" />
-                      <div className="truncate">
-                        <div className="font-bold text-xs text-slate-800 truncate">{pdfFileName}</div>
-                        <div className="text-[10px] text-indigo-600 font-medium">{pdfFileSize} • Đã sẵn sàng</div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-slate-600">Tài liệu PDF đính kèm:</span>
+                    {pdfFileName && (
+                      <button
+                        type="button"
+                        onClick={handleClearPdfFile}
+                        className="text-[11px] font-medium text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-1.5 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Hủy chọn file PDF này"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Xóa file</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {isParsingPdf ? (
+                    <div className="flex items-center gap-2 p-2.5 bg-indigo-50/80 rounded-lg border border-indigo-200">
+                      <Loader2 className="w-4 h-4 text-indigo-600 animate-spin shrink-0" />
+                      <span className="text-xs text-indigo-700 font-semibold">
+                        Đang phân tích cấu trúc từng trang PDF...
+                      </span>
+                    </div>
+                  ) : pdfFileName ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2 p-2 bg-indigo-50/80 rounded-lg border border-indigo-200/80">
+                        <FileText className="w-5 h-5 text-indigo-600 shrink-0" />
+                        <div className="truncate flex-1">
+                          <div className="font-bold text-xs text-slate-800 truncate">{pdfFileName}</div>
+                          <div className="text-[10px] text-indigo-600 font-semibold flex items-center gap-2">
+                            <span>{pdfFileSize}</span>
+                            {pdfPagesCount > 0 && <span>• {pdfPagesCount} trang</span>}
+                            {pdfCharCount > 0 && <span>• {pdfCharCount.toLocaleString('vi-VN')} ký tự</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-1 pt-0.5">
+                        <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          Đã trích xuất nội dung
+                        </span>
+
+                        {pdfFullText && (
+                          <button
+                            type="button"
+                            onClick={() => setShowPdfTextPreview((prev) => !prev)}
+                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>{showPdfTextPreview ? 'Ẩn xem trước' : 'Xem nội dung PDF'}</span>
+                            {showPdfTextPreview ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ) : (
-                    <div className="text-xs text-slate-400 italic p-2 border border-dashed border-slate-200 rounded-lg">
-                      Chưa chọn file PDF (Có thể dùng bài mẫu hoặc nhập nội dung)
+                    <div className="text-xs text-slate-400 italic p-2.5 border border-dashed border-slate-200 rounded-lg text-center">
+                      Chưa chọn file PDF (Hệ thống sẽ tự động sinh câu hỏi chuẩn theo Tên bài SGK)
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
 
-                  {pdfContentExcerpt && (
-                    <p className="mt-2 text-[11px] text-slate-600 line-clamp-2 bg-slate-50 p-2 rounded border border-slate-200">
-                      <span className="font-semibold">Trích xuất:</span> {pdfContentExcerpt}
-                    </p>
-                  )}
+            {/* Collapsible PDF Text Preview Box */}
+            {showPdfTextPreview && pdfFullText && (
+              <div className="bg-slate-900 text-slate-200 p-3.5 rounded-xl border border-slate-800 text-xs space-y-2 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between border-b border-slate-700 pb-2">
+                  <span className="font-bold text-slate-100 text-xs flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-indigo-400" />
+                    Nội dung văn bản được bóc tách từ PDF ({pdfFileName}):
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {pdfCharCount.toLocaleString('vi-VN')} ký tự • {pdfPagesCount} trang
+                  </span>
+                </div>
+                <div className="max-h-48 overflow-y-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-slate-300 pr-2 select-text bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+                  {pdfFullText}
+                </div>
+              </div>
+            )}
+
+            {/* AI Direct Question Generation Button */}
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={handleGenerateQuestions}
+                disabled={isGenerating || isParsingPdf}
+                className="w-full py-3.5 px-5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-black text-sm shadow-md shadow-indigo-200 flex items-center justify-center gap-2.5 transition-all disabled:opacity-50 cursor-pointer"
+              >
+                {isGenerating ? (
+                  <Loader2 className="w-5 h-5 text-amber-300 animate-spin" />
+                ) : (
+                  <Sparkles className="w-5 h-5 text-amber-300" />
+                )}
+                <span>
+                  {isGenerating
+                    ? `Đang phân tích ${pdfPagesCount > 0 ? `${pdfPagesCount} trang PDF` : 'nội dung SGK'} để tự động sinh câu hỏi...`
+                    : `✨ AI Sinh ${mcCount} Trắc Nghiệm & ${essayCount} Tự Luận (${pdfFileName ? 'Từ PDF đính kèm' : 'Theo Tên Bài SGK'})`}
+                </span>
+              </button>
+            </div>
+
+            {/* Download & Import Sample Template File Card */}
+            <div className="bg-white p-3.5 rounded-xl border border-indigo-200/90 shadow-2xs space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                <div>
+                  <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Tải File Mẫu & Nhập Đề Thi Từ File Máy Tính (CSV, Excel, TXT, JSON):</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Thầy cô có thể tải file mẫu về máy, điền câu hỏi theo cột rồi tải ngược lại để nhập hàng loạt vào đề thi.
+                  </p>
                 </div>
 
-                <div className="mt-3">
+                {/* Template Download Buttons */}
+                <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                   <button
                     type="button"
-                    onClick={handleGenerateQuestions}
-                    disabled={isGenerating}
-                    className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-semibold text-xs shadow-md shadow-indigo-200 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+                    onClick={() => downloadSampleFile('csv')}
+                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                    title="Tải file mẫu Excel / CSV chuẩn hóa"
                   >
-                    <Sparkles className="w-4 h-4 animate-spin-slow" />
-                    <span>
-                      {isGenerating
-                        ? 'Đang phân tích PDF & sinh câu hỏi...'
-                        : `Sinh AI ${mcCount} Trắc Nghiệm & ${essayCount} Tự Luận`}
-                    </span>
+                    <Download className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Tải Mẫu Excel/CSV</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => downloadSampleFile('txt')}
+                    className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                    title="Tải file mẫu văn bản dạng TXT"
+                  >
+                    <Download className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Tải Mẫu TXT</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => downloadSampleFile('json')}
+                    className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                    title="Tải file mẫu cấu trúc JSON"
+                  >
+                    <Download className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Mẫu JSON</span>
                   </button>
                 </div>
               </div>
+
+              {/* Import File Button */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-0.5">
+                <label className="flex-1 border-2 border-dashed border-emerald-300 hover:border-emerald-500 bg-emerald-50/40 hover:bg-emerald-50/80 rounded-xl p-3 flex items-center justify-center gap-2 cursor-pointer transition-colors group">
+                  <FolderUp className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform shrink-0" />
+                  <span className="text-xs font-bold text-emerald-900">
+                    Nhấp vào đây để chọn file mẫu đã điền câu hỏi (.csv, .txt, .json) để tải lên đề thi
+                  </span>
+                  <input
+                    type="file"
+                    accept=".csv,.txt,.json"
+                    onChange={handleImportTemplateFile}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {importSuccessMsg && (
+                <div className="p-2.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{importSuccessMsg}</span>
+                </div>
+              )}
             </div>
 
             {generationError && (
@@ -842,10 +1028,10 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
                     type="button"
                     onClick={handleSanitizeAllQuestions}
                     className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all flex items-center gap-1 cursor-pointer mr-1 shrink-0"
-                    title="Tự động bọc phân số trong $...$ và loại bỏ ký tự $45\;678$ rườm rà trên toàn bộ câu hỏi"
+                    title="Tự động rà soát, loại bỏ ký tự rườm rà $45\;678$, bọc phân số và chuyển đơn vị ha, m² về chuẩn SGK"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>{"Sửa lỗi Phân số (\\frac{a}{b}) & Chuẩn hóa số"}</span>
+                    <span>{"🔍 Rà Soát & Sửa Theo Chuẩn SGK (ha, m², \\frac{a}{b}, 45 678)"}</span>
                   </button>
 
                   {COMMON_MATH_SYMBOLS.map((sym, idx) => (
@@ -1007,9 +1193,10 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
                                 </div>
                                 {/* Live math preview for option */}
                                 {opt && (
-                                  <div className="text-[11px] text-slate-700 pl-7 flex items-center gap-1 font-medium">
+                                  <div className="text-[11px] text-slate-700 pl-7 flex items-center gap-1.5 font-medium">
                                     <span className="text-[9px] font-bold text-slate-400 uppercase">Xem:</span>
-                                    <MathText text={opt} />
+                                    <span className="font-bold text-indigo-700">{String.fromCharCode(65 + optIndex)}.</span>
+                                    <MathText text={cleanOptionText(opt)} />
                                   </div>
                                 )}
                               </div>

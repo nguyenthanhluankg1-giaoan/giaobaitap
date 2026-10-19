@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import { Assignment, Question } from '../../types/index.ts';
 import { MathText } from '../common/MathText.tsx';
+import { cleanOptionText } from '../../utils/mathUtils.ts';
 import confetti from 'canvas-confetti';
 import {
   Clock,
@@ -318,7 +319,7 @@ export const TakeTestModal: React.FC<Props> = ({
                               {String.fromCharCode(65 + optIdx)}
                             </span>
                             <div className="leading-snug">
-                              <MathText text={option} />
+                              <MathText text={cleanOptionText(option)} />
                             </div>
                           </div>
                           {isSelected && (
