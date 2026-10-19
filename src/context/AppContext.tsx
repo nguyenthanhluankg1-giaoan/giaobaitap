@@ -61,12 +61,46 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const CURRENT_USER_KEY = 'eduhomework_current_user_id_v4';
+const CURRENT_USER_KEY = 'eduhomework_current_user_id_v5';
+const LOCAL_ASSIGNMENTS_KEY = 'eduhomework_assignments_v5';
+const DELETED_ASSIGNMENTS_KEY = 'eduhomework_deleted_assignments_v5';
+const LOCAL_SUBMISSIONS_KEY = 'eduhomework_submissions_v5';
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<User[]>(INITIAL_USERS);
-  const [assignments, setAssignments] = useState<Assignment[]>(INITIAL_ASSIGNMENTS);
-  const [submissions, setSubmissions] = useState<Submission[]>(INITIAL_SUBMISSIONS);
+
+  // Initialize assignments with localStorage cache and deleted IDs filter
+  const [assignments, setAssignments] = useState<Assignment[]>(() => {
+    try {
+      const storedDeleted = localStorage.getItem(DELETED_ASSIGNMENTS_KEY);
+      const deletedIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
+
+      const stored = localStorage.getItem(LOCAL_ASSIGNMENTS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Assignment[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((a) => !deletedIds.includes(a.id));
+        }
+      }
+      return INITIAL_ASSIGNMENTS.filter((a) => !deletedIds.includes(a.id));
+    } catch {
+      return INITIAL_ASSIGNMENTS;
+    }
+  });
+
+  const [submissions, setSubmissions] = useState<Submission[]>(() => {
+    try {
+      const stored = localStorage.getItem(LOCAL_SUBMISSIONS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Submission[];
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return INITIAL_SUBMISSIONS;
+    } catch {
+      return INITIAL_SUBMISSIONS;
+    }
+  });
+
   const [firebaseConnected, setFirebaseConnected] = useState<boolean>(false);
 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -82,7 +116,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   });
 
-  // Track current user in localStorage for session persistence
+  // Track current user in localStorage
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(CURRENT_USER_KEY, currentUser.id);
@@ -90,6 +124,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.removeItem(CURRENT_USER_KEY);
     }
   }, [currentUser]);
+
+  // Persist assignments to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(assignments));
+    } catch (e) {
+      console.error('Failed to save assignments to localStorage', e);
+    }
+  }, [assignments]);
+
+  // Persist submissions to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(submissions));
+    } catch (e) {
+      console.error('Failed to save submissions to localStorage', e);
+    }
+  }, [submissions]);
 
   // Connect to Firestore and start real-time listeners
   useEffect(() => {
@@ -108,7 +160,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubscribeUsers = subscribeToUsers((freshUsers) => {
         if (freshUsers.length > 0) {
           setUsers(freshUsers);
-          // Keep current user updated if info changed
           setCurrentUser((curr) => {
             if (!curr) return curr;
             const updated = freshUsers.find((u) => u.id === curr.id);
@@ -119,7 +170,15 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       unsubscribeAssignments = subscribeToAssignments((freshAssignments) => {
         if (freshAssignments.length > 0) {
-          setAssignments(freshAssignments);
+          try {
+            const storedDeleted = localStorage.getItem(DELETED_ASSIGNMENTS_KEY);
+            const deletedIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
+            const filtered = freshAssignments.filter((a) => !deletedIds.includes(a.id));
+            setAssignments(filtered);
+            localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(filtered));
+          } catch {
+            setAssignments(freshAssignments);
+          }
         }
       });
 
@@ -237,8 +296,28 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const deleteAssignment = async (assignmentId: string) => {
-    setAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+    // 1. Update assignments state & localStorage
+    setAssignments((prev) => {
+      const next = prev.filter((a) => a.id !== assignmentId);
+      try {
+        localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // 2. Add to deleted IDs registry in localStorage
+    try {
+      const storedDeleted = localStorage.getItem(DELETED_ASSIGNMENTS_KEY);
+      const deletedIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
+      if (!deletedIds.includes(assignmentId)) {
+        deletedIds.push(assignmentId);
+        localStorage.setItem(DELETED_ASSIGNMENTS_KEY, JSON.stringify(deletedIds));
+      }
+    } catch {}
+
     setSubmissions((prev) => prev.filter((s) => s.assignmentId !== assignmentId));
+
+    // 3. Delete from Firestore
     await deleteAssignmentFromFirestore(assignmentId);
   };
 
@@ -336,12 +415,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const resetToSampleData = async () => {
+    try {
+      localStorage.removeItem(DELETED_ASSIGNMENTS_KEY);
+      localStorage.removeItem(LOCAL_ASSIGNMENTS_KEY);
+      localStorage.removeItem(LOCAL_SUBMISSIONS_KEY);
+      localStorage.removeItem(CURRENT_USER_KEY);
+    } catch {}
     setUsers(INITIAL_USERS);
     setAssignments(INITIAL_ASSIGNMENTS);
     setSubmissions(INITIAL_SUBMISSIONS);
     const teacher = INITIAL_USERS.find((u) => u.role === 'teacher');
     setCurrentUser(teacher || null);
-    localStorage.removeItem(CURRENT_USER_KEY);
     await seedFirestoreIfEmpty();
   };
 

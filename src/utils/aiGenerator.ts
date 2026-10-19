@@ -71,11 +71,12 @@ ${pdfContent.slice(0, 3000) || 'Dựa trên kiến thức chuẩn SGK về chủ
 
 ${elemGuide}
 
-QUY TẮC BẮT BUỘC VỀ SỐ HỌC & CÔNG THỨC TOÁN (RẤT QUAN TRỌNG):
+QUY TẮC BẮT BUỘC VỀ SỐ HỌC, ĐƠN VỊ ĐO & CÔNG THỨC TOÁN (RẤT QUAN TRỌNG):
 1. TUYỆT ĐỐI KHÔNG kẹp các số tự nhiên, số thập phân hoặc số phân cách hàng nghìn trong cặp dấu $...$ hay dùng $...\\;...$ (Ví dụ: viết '45 678' hoặc '45.678', TUYỆT ĐỐI KHÔNG được viết '$45\\;678$', '$45\\,678$' hay '$45678$').
 2. TUYỆT ĐỐI KHÔNG kẹp nhãn lựa chọn đáp án hoặc văn bản thông thường trong dấu $...$ (Ví dụ: viết 'A. 45 678', KHÔNG được viết '$A. 45\\;678$').
-3. BẮT BUỘC kẹp các phân số, biểu thức phân số, căn thức và đơn vị diện tích/thể tích trong cặp dấu $...$ (Ví dụ: viết '$\\frac{7}{10}$', '$\\frac{70}{100}$', '$\\frac{7}{10} = \\frac{70}{100}$', '$\\text{m}^2$', '$\\text{cm}^2$', '$\\sqrt{x}$', '$x^2$', '$\\ge$', '$\\le$', '$\\neq$', '$\\Delta$').
-4. Trong JSON, hãy escape các dấu gạch chéo ngược đúng chuẩn (ví dụ: "\\\\frac{7}{10}" hay "\\\\mathbb{N}^*").
+3. VỀ ĐƠN VỊ ĐO LƯỜNG (ha, m², cm², dm², mm², km², kg, g): Hãy viết trực tiếp dạng chữ thuần 'ha', 'm²', 'cm²', 'dm²', 'mm²', 'km²' (TUYỆT ĐỐI KHÔNG dùng '\\text{ha}', '$\\text{ha}$' hay '\\text{m}^2'). Phép nhân dùng '×', phép chia dùng ':' hoặc '÷' (Ví dụ: 'Vì 1 ha = 10 000 m² nên 5 ha = 5 × 10 000 = 50 000 m².').
+4. VỀ PHÂN SỐ VÀ HỖN SỐ: BẮT BUỘC bọc phân số hoặc hỗn số trong cặp dấu $...$ (Ví dụ: '$\\frac{30}{100}$', hỗn số '$3\\frac{2}{5}$', căn thức '$\\sqrt{x}$', lũy thừa '$x^2$', '$\\ge$', '$\\le$', '$\\neq$', '$\\Delta$').
+5. Trong JSON, hãy escape các dấu gạch chéo ngược đúng chuẩn (ví dụ: "\\\\frac{30}{100}" hay "\\\\mathbb{N}^*").
 
 Hãy trả về DUY NHẤT một mảng JSON thuần túy (không kèm markdown \`\`\`json) theo đúng cấu trúc sau:
 [

@@ -31,7 +31,7 @@ export const AssignmentRepository: React.FC<Props> = ({
   onViewAnalytics,
   onViewSubmissions,
 }) => {
-  const { assignments, deleteAssignment, submissions, users } = useApp();
+  const { assignments, updateAssignment, deleteAssignment, submissions, users } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSubject, setSelectedSubject] = useState('all');
   const [selectedGrade, setSelectedGrade] = useState('all');
@@ -42,6 +42,25 @@ export const AssignmentRepository: React.FC<Props> = ({
   const [deleteToast, setDeleteToast] = useState('');
   const [targetClass, setTargetClass] = useState('10A1');
   const [dispatchSuccess, setDispatchSuccess] = useState(false);
+
+  const handleDeleteQuestionFromAssignment = (qIdx: number) => {
+    if (!previewAssignment) return;
+    if (previewAssignment.questions.length <= 1) {
+      alert('Bài tập phải giữ ít nhất 1 câu hỏi! Nếu muốn xóa toàn bộ đề, hãy bấm nút "Xóa đề thi này".');
+      return;
+    }
+    const updatedQuestions = previewAssignment.questions.filter((_, idx) => idx !== qIdx);
+    const updatedTotalPoints = updatedQuestions.reduce((sum, q) => sum + (q.points || 0), 0);
+    const updatedAssignment: Assignment = {
+      ...previewAssignment,
+      questions: updatedQuestions,
+      totalPoints: updatedTotalPoints,
+    };
+    setPreviewAssignment(updatedAssignment);
+    updateAssignment(updatedAssignment);
+    setDeleteToast(`Đã xóa câu hỏi số ${qIdx + 1} khỏi đề thi thành công!`);
+    setTimeout(() => setDeleteToast(''), 3000);
+  };
 
   const students = users.filter((u) => u.role === 'student');
 
@@ -351,7 +370,17 @@ export const AssignmentRepository: React.FC<Props> = ({
                       </span>
                       <span className="font-bold text-slate-900">Câu {idx + 1}</span>
                     </div>
-                    <span className="font-bold text-indigo-600 text-[11px]">{q.points} điểm</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-indigo-600 text-[11px]">{q.points} điểm</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteQuestionFromAssignment(idx)}
+                        className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                        title="Xóa câu hỏi này khỏi đề thi"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="font-semibold text-slate-900 leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-200/70">
