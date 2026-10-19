@@ -64,6 +64,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const CURRENT_USER_KEY = 'eduhomework_current_user_id_v5';
 const CURRENT_USER_OBJ_KEY = 'eduhomework_current_user_obj_v5';
 const LOCAL_USERS_KEY = 'eduhomework_users_v5';
+const DELETED_USERS_KEY = 'eduhomework_deleted_users_v5';
 const LOCAL_ASSIGNMENTS_KEY = 'eduhomework_assignments_v5';
 const DELETED_ASSIGNMENTS_KEY = 'eduhomework_deleted_assignments_v5';
 const LOCAL_SUBMISSIONS_KEY = 'eduhomework_submissions_v5';
@@ -71,12 +72,17 @@ const LOCAL_SUBMISSIONS_KEY = 'eduhomework_submissions_v5';
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<User[]>(() => {
     try {
+      const storedDeleted = localStorage.getItem(DELETED_USERS_KEY);
+      const deletedUserIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
+
       const stored = localStorage.getItem(LOCAL_USERS_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as User[];
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((u) => !deletedUserIds.includes(u.id));
+        }
       }
-      return INITIAL_USERS;
+      return INITIAL_USERS.filter((u) => !deletedUserIds.includes(u.id));
     } catch {
       return INITIAL_USERS;
     }
@@ -197,17 +203,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       // Listen to real-time changes from Firestore
       unsubscribeUsers = subscribeToUsers((freshUsers) => {
         if (freshUsers.length > 0) {
-          setUsers((prev) => {
-            const map = new Map<string, User>();
-            for (const u of INITIAL_USERS) map.set(u.id, u);
-            for (const u of prev) map.set(u.id, u);
-            for (const u of freshUsers) map.set(u.id, u);
-            const merged = Array.from(map.values());
-            try {
-              localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
+          try {
+            const storedDeleted = localStorage.getItem(DELETED_USERS_KEY);
+            const deletedUserIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
+
+            setUsers((prev) => {
+              const map = new Map<string, User>();
+              for (const u of INITIAL_USERS) {
+                if (!deletedUserIds.includes(u.id)) map.set(u.id, u);
+              }
+              for (const u of prev) {
+                if (!deletedUserIds.includes(u.id)) map.set(u.id, u);
+              }
+              for (const u of freshUsers) {
+                if (!deletedUserIds.includes(u.id)) map.set(u.id, u);
+              }
+              const merged = Array.from(map.values());
+              try {
+                localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(merged));
+              } catch {}
+              return merged;
+            });
+          } catch {
+            setUsers(freshUsers);
+          }
 
           setCurrentUser((curr) => {
             const savedId = localStorage.getItem(CURRENT_USER_KEY);
@@ -343,6 +362,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       } catch {}
       return next;
     });
+
+    try {
+      const stored = localStorage.getItem(DELETED_USERS_KEY);
+      const deleted = stored ? (JSON.parse(stored) as string[]) : [];
+      if (!deleted.includes(teacherId)) {
+        deleted.push(teacherId);
+        localStorage.setItem(DELETED_USERS_KEY, JSON.stringify(deleted));
+      }
+    } catch {}
+
     if (currentUser?.id === teacherId) {
       const admin = users.find((u) => u.role === 'admin') || users[0];
       setCurrentUser(admin || null);
@@ -389,6 +418,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       } catch {}
       return next;
     });
+
+    try {
+      const stored = localStorage.getItem(DELETED_USERS_KEY);
+      const deleted = stored ? (JSON.parse(stored) as string[]) : [];
+      if (!deleted.includes(studentId)) {
+        deleted.push(studentId);
+        localStorage.setItem(DELETED_USERS_KEY, JSON.stringify(deleted));
+      }
+    } catch {}
+
     setSubmissions((prev) => {
       const next = prev.filter((s) => s.studentId !== studentId);
       try {
@@ -566,6 +605,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       localStorage.removeItem(CURRENT_USER_KEY);
       localStorage.removeItem(CURRENT_USER_OBJ_KEY);
       localStorage.removeItem(LOCAL_USERS_KEY);
+      localStorage.removeItem(DELETED_USERS_KEY);
     } catch {}
     setUsers(INITIAL_USERS);
     setAssignments(INITIAL_ASSIGNMENTS);

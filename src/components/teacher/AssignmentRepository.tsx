@@ -78,13 +78,31 @@ export const AssignmentRepository: React.FC<Props> = ({
     return matchesSearch && matchesSubject && matchesGrade;
   });
 
+  const classOptions = Array.from(
+    new Set([
+      'all',
+      '10A1',
+      '10A2',
+      ...students.map((s) => s.classId).filter(Boolean),
+      ...assignments.map((a) => a.assignedClass).filter(Boolean),
+    ])
+  );
+
   const handleDispatch = (assignment: Assignment) => {
     setDispatchModalAssignment(assignment);
-    setTargetClass(assignment.assignedClass || '10A1');
+    setTargetClass(assignment.assignedClass || students[0]?.classId || '10A1');
     setDispatchSuccess(false);
   };
 
   const confirmDispatch = () => {
+    if (dispatchModalAssignment) {
+      const updated = {
+        ...dispatchModalAssignment,
+        assignedClass: targetClass,
+        assignedTo: ['all'],
+      };
+      updateAssignment(updated);
+    }
     setDispatchSuccess(true);
     setTimeout(() => {
       setDispatchModalAssignment(null);
@@ -492,25 +510,42 @@ export const AssignmentRepository: React.FC<Props> = ({
                 <select
                   value={targetClass}
                   onChange={(e) => setTargetClass(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-medium text-slate-800"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-bold text-slate-800 bg-white cursor-pointer"
                 >
-                  <option value="10A1">Lớp 10A1 (Toàn bộ 5 học sinh)</option>
-                  <option value="10A2">Lớp 10A2</option>
-                  <option value="Toàn khối 10">Toàn khối 10</option>
+                  <option value="all">🌐 Toàn trường (Tất cả {students.length} học sinh)</option>
+                  {classOptions
+                    .filter((c) => c !== 'all')
+                    .map((c) => {
+                      const count = students.filter((s) => s.classId === c).length;
+                      return (
+                        <option key={c} value={c}>
+                          🏫 Lớp {c} ({count} học sinh)
+                        </option>
+                      );
+                    })}
                 </select>
               </div>
 
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">
-                  Danh sách học sinh nhận bài:
+                  Danh sách {targetClass === 'all' ? 'toàn bộ học sinh' : `học sinh Lớp ${targetClass}`} nhận bài ({targetClass === 'all' ? students.length : students.filter((s) => s.classId === targetClass).length} em):
                 </label>
                 <div className="max-h-36 overflow-y-auto space-y-1 p-2 bg-slate-50 rounded-lg border border-slate-200">
-                  {students.map((st) => (
-                    <div key={st.id} className="flex items-center justify-between py-1 px-2 bg-white rounded border border-slate-100 text-[11px]">
-                      <span className="font-medium text-slate-800">{st.fullName}</span>
-                      <span className="text-slate-400">@{st.username}</span>
+                  {students
+                    .filter((st) => targetClass === 'all' || st.classId === targetClass)
+                    .map((st) => (
+                      <div key={st.id} className="flex items-center justify-between py-1 px-2.5 bg-white rounded border border-slate-200 text-[11px]">
+                        <span className="font-bold text-slate-800">{st.fullName}</span>
+                        <span className="text-indigo-600 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">
+                          Lớp {st.classId || '10A1'} • @{st.username}
+                        </span>
+                      </div>
+                    ))}
+                  {students.filter((st) => targetClass === 'all' || st.classId === targetClass).length === 0 && (
+                    <div className="text-xs text-slate-500 p-2 text-center italic bg-amber-50 rounded border border-amber-200">
+                      Chưa có học sinh nào thuộc Lớp {targetClass}. Hãy tạo thêm tài khoản học sinh cho lớp này ở mục Quản lý học sinh!
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
             </div>
