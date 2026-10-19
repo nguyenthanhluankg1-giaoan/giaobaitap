@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account for admin, teachers, and students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "username": { "type": "string", "maxLength": 64 },
+        "password": { "type": "string", "maxLength": 128 },
+        "fullName": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["admin", "teacher", "student"] },
+        "classId": { "type": "string", "maxLength": 64 },
+        "teachingSubject": { "type": "string", "maxLength": 128 },
+        "avatar": { "type": "string", "maxLength": 512 },
+        "email": { "type": "string", "maxLength": 128 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "username", "fullName", "role", "createdAt"]
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "Homework assignment containing multiple choice and essay questions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "subject": { "type": "string", "maxLength": 128 },
+        "grade": { "type": "string", "maxLength": 32 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "pdfFileName": { "type": "string", "maxLength": 256 },
+        "pdfFileSize": { "type": "string", "maxLength": 64 },
+        "pdfContentExcerpt": { "type": "string", "maxLength": 10000 },
+        "durationMinutes": { "type": "number" },
+        "dueDate": { "type": "string", "maxLength": 64 },
+        "assignedClass": { "type": "string", "maxLength": 64 },
+        "totalPoints": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["published", "draft"] }
+      },
+      "required": ["id", "title", "subject", "grade", "totalPoints", "createdAt", "status"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Student homework submission and grading result",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "assignmentId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 128 },
+        "submittedAt": { "type": "string", "maxLength": 64 },
+        "multipleChoiceScore": { "type": "number" },
+        "essayScore": { "type": "number" },
+        "totalScore": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "status": { "type": "string", "enum": ["submitted", "graded"] },
+        "gradedAt": { "type": "string", "maxLength": 64 },
+        "teacherFeedback": { "type": "string", "maxLength": 5000 },
+        "timeSpentSeconds": { "type": "number" }
+      },
+      "required": ["id", "assignmentId", "studentId", "studentName", "submittedAt", "totalScore", "maxScore", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles collection"
+    },
+    "/assignments/{assignmentId}": {
+      "schema": "Assignment",
+      "description": "Homework assignments repository"
+    },
+    "/submissions/{submissionId}": {
+      "schema": "Submission",
+      "description": "Student homework submissions and test results"
+    }
+  }
+}

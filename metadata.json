@@ -1,0 +1,6 @@
+{
+  "name": "EduHomework - Quản Lý & Giao Bài Tập Thông Minh",
+  "description": "Hệ thống giao bài tập về nhà với phân quyền giáo viên - học sinh, tạo câu hỏi trắc nghiệm & tự luận từ PDF, chấm điểm tự động và thống kê học tập.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

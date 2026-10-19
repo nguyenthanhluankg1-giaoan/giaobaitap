@@ -1,0 +1,84 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation for User document
+    function isValidUser(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.username is string && data.username.size() > 0 && data.username.size() <= 64 &&
+             data.fullName is string && data.fullName.size() > 0 && data.fullName.size() <= 128 &&
+             data.role in ['admin', 'teacher', 'student'] &&
+             data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    // Validation for Assignment document
+    function isValidAssignment(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 256 &&
+             data.subject is string && data.subject.size() > 0 &&
+             data.totalPoints is number && data.totalPoints >= 0 &&
+             data.status in ['published', 'draft'];
+    }
+
+    // Validation for Submission document
+    function isValidSubmission(data) {
+      return data.id is string && data.id.size() <= 128 &&
+             data.assignmentId is string && data.assignmentId.size() <= 128 &&
+             data.studentId is string && data.studentId.size() <= 128 &&
+             data.studentName is string && data.studentName.size() > 0 &&
+             data.totalScore is number && data.totalScore >= 0 &&
+             data.maxScore is number && data.maxScore >= 0 &&
+             data.status in ['submitted', 'graded'];
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if true;
+      allow create: if isValidId(userId) && isValidUser(incoming()) && incoming().id == userId;
+      allow update: if isValidId(userId) && isValidUser(incoming()) && incoming().id == existing().id;
+      allow delete: if isValidId(userId);
+    }
+
+    // Assignments Collection
+    match /assignments/{assignmentId} {
+      allow get: if isValidId(assignmentId);
+      allow list: if true;
+      allow create: if isValidId(assignmentId) && isValidAssignment(incoming()) && incoming().id == assignmentId;
+      allow update: if isValidId(assignmentId) && isValidAssignment(incoming()) && incoming().id == existing().id;
+      allow delete: if isValidId(assignmentId);
+    }
+
+    // Submissions Collection
+    match /submissions/{submissionId} {
+      allow get: if isValidId(submissionId);
+      allow list: if true;
+      allow create: if isValidId(submissionId) && isValidSubmission(incoming()) && incoming().id == submissionId;
+      allow update: if isValidId(submissionId) && isValidSubmission(incoming()) && incoming().id == existing().id;
+      allow delete: if isValidId(submissionId);
+    }
+
+    // Test connection doc used on boot
+    match /test/{docId} {
+      allow get, list, write: if isValidId(docId);
+    }
+  }
+}
