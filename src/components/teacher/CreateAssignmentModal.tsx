@@ -4,6 +4,7 @@ import { Assignment, Question } from '../../types/index.ts';
 import { generateQuestionsFromDoc } from '../../utils/aiGenerator.ts';
 import { cleanQuestionMath, cleanMathNotation } from '../../utils/mathUtils.ts';
 import { MathText } from '../common/MathText.tsx';
+import { ApiKeyModal } from '../common/ApiKeyModal.tsx';
 import {
   X,
   Upload,
@@ -21,6 +22,7 @@ import {
   Check,
   Calculator,
   Eye,
+  Key,
 } from 'lucide-react';
 
 interface Props {
@@ -53,6 +55,10 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
   // Question counts configuration
   const [mcCount, setMcCount] = useState<number>(4);
   const [essayCount, setEssayCount] = useState<number>(2);
+
+  // Gemini API Key modal state
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const hasCustomKey = typeof window !== 'undefined' && !!localStorage.getItem('custom_gemini_api_key');
 
   // Questions state
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -565,10 +571,26 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
 
           {/* Section 2: PDF Upload & Automatic Question Extraction */}
           <div className="bg-indigo-50/40 p-4 rounded-xl border border-indigo-200/80 space-y-4">
-            <span className="font-bold text-xs uppercase text-indigo-700 tracking-wider flex items-center gap-1.5">
-              <Upload className="w-4 h-4" />
-              2. Cấu Hình Số Lượng & Upload Tài Liệu Sinh Đề AI
-            </span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-xs uppercase text-indigo-700 tracking-wider flex items-center gap-1.5">
+                <Upload className="w-4 h-4" />
+                2. Cấu Hình Số Lượng & Upload Tài Liệu Sinh Đề AI
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setIsApiKeyModalOpen(true)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                  hasCustomKey
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                    : 'bg-white text-indigo-700 border-indigo-200 hover:bg-indigo-50'
+                }`}
+                title="Cấu hình Google Gemini API Key để AI sinh câu hỏi"
+              >
+                <Key className="w-3.5 h-3.5 text-amber-500" />
+                <span>{hasCustomKey ? '🟢 Đã cài API Key cá nhân' : '🔑 Dán Gemini API Key'}</span>
+              </button>
+            </div>
 
             {/* Question count configuration card */}
             <div className="bg-white p-3.5 rounded-xl border border-indigo-100 shadow-2xs space-y-3">
@@ -1084,6 +1106,12 @@ export const CreateAssignmentModal: React.FC<Props> = ({ isOpen, onClose, onSucc
           </button>
         </div>
       </div>
+
+      {/* API Key Modal */}
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
+      />
     </div>
   );
 };

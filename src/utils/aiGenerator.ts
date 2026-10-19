@@ -13,6 +13,31 @@ interface GenerateOptions {
 }
 
 /**
+ * Tests if a provided Gemini API Key is valid and working.
+ */
+export async function testGeminiApiKey(testKey: string): Promise<{ success: boolean; message: string }> {
+  if (!testKey || !testKey.trim()) {
+    return { success: false, message: 'Vui lòng nhập API key.' };
+  }
+  try {
+    const ai = new GoogleGenAI({ apiKey: testKey.trim() });
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: 'Xin chào, hãy phản hồi chữ OK.',
+    });
+    if (response.text) {
+      return { success: true, message: 'Kết nối Google Gemini API thành công! API Key hợp lệ và sẵn sàng tạo đề.' };
+    }
+    return { success: false, message: 'API key không phản hồi dữ liệu.' };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Lỗi kết nối Gemini API: ${err.message || 'API Key không hợp lệ hoặc đã hết hạn.'}`,
+    };
+  }
+}
+
+/**
  * Generates questions using Gemini API if key is available, or high-grade contextual educational generator.
  */
 export async function generateQuestionsFromDoc(options: GenerateOptions): Promise<Question[]> {
@@ -22,7 +47,9 @@ export async function generateQuestionsFromDoc(options: GenerateOptions): Promis
     grade.toLowerCase().includes(g)
   );
 
-  const apiKey = (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) ||
+  const userApiKey = typeof window !== 'undefined' ? localStorage.getItem('custom_gemini_api_key') : null;
+  const apiKey = (userApiKey && userApiKey.trim()) ||
+                 (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) ||
                  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY);
 
   if (apiKey) {

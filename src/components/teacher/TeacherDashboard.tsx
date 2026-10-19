@@ -5,6 +5,7 @@ import { TeacherGradingView } from './TeacherGradingView.tsx';
 import { ClassAnalyticsView } from './ClassAnalyticsView.tsx';
 import { StudentManager } from './StudentManager.tsx';
 import { CreateAssignmentModal } from './CreateAssignmentModal.tsx';
+import { ApiKeyModal } from '../common/ApiKeyModal.tsx';
 import {
   BookOpen,
   FileCheck,
@@ -13,6 +14,7 @@ import {
   Plus,
   Sparkles,
   Layers,
+  Key,
 } from 'lucide-react';
 
 export const TeacherDashboard: React.FC = () => {
@@ -21,8 +23,11 @@ export const TeacherDashboard: React.FC = () => {
     'assignments'
   );
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
   const [selectedAssignmentForAnalytics, setSelectedAssignmentForAnalytics] = useState<string | null>(null);
   const [selectedAssignmentForGrading, setSelectedAssignmentForGrading] = useState<string | null>(null);
+
+  const hasCustomKey = typeof window !== 'undefined' && !!localStorage.getItem('custom_gemini_api_key');
 
   // Submissions count needing review
   const pendingCount = submissions.filter((s) => s.status === 'submitted').length;
@@ -103,15 +108,31 @@ export const TeacherDashboard: React.FC = () => {
           </button>
         </div>
 
-        {/* Quick action button */}
-        <button
-          type="button"
-          onClick={() => setIsCreateModalOpen(true)}
-          className="py-2 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold text-xs shadow-md shadow-indigo-100 flex items-center gap-1.5 cursor-pointer"
-        >
-          <Sparkles className="w-4 h-4" />
-          <span>+ Tạo Đề Mới Từ PDF</span>
-        </button>
+        {/* Quick action buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsApiKeyModalOpen(true)}
+            className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border ${
+              hasCustomKey
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+            }`}
+            title="Cấu hình Google Gemini API Key để soạn đề bằng AI"
+          >
+            <Key className="w-3.5 h-3.5 text-amber-500" />
+            <span>{hasCustomKey ? '🟢 Gemini API Key (Cá nhân)' : '🔑 Dán Gemini API Key'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsCreateModalOpen(true)}
+            className="py-2 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold text-xs shadow-md shadow-indigo-100 flex items-center gap-1.5 cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>+ Tạo Đề Mới Từ PDF</span>
+          </button>
+        </div>
       </div>
 
       {/* Tab Panels */}
@@ -138,6 +159,12 @@ export const TeacherDashboard: React.FC = () => {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSuccess={() => setActiveTab('assignments')}
+      />
+
+      {/* API Key Modal */}
+      <ApiKeyModal
+        isOpen={isApiKeyModalOpen}
+        onClose={() => setIsApiKeyModalOpen(false)}
       />
     </div>
   );
