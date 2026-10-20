@@ -7,6 +7,8 @@ import {
   subscribeToUsers,
   subscribeToAssignments,
   subscribeToSubmissions,
+  subscribeToDeletedAssignments,
+  recordDeletedAssignmentInFirestore,
   seedFirestoreIfEmpty,
   saveUserToFirestore,
   deleteUserFromFirestore,
@@ -14,6 +16,7 @@ import {
   deleteAssignmentFromFirestore,
   saveSubmissionToFirestore,
 } from '../services/firebaseService.ts';
+import { broadcastSyncEvent, subscribeToSyncEvents } from '../utils/syncChannel.ts';
 
 interface AppContextType {
   currentUser: User | null;
@@ -187,11 +190,59 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [submissions]);
 
+  // Listen to BroadcastChannel and window storage events for instantaneous cross-tab synchronization
+  useEffect(() => {
+    const unsubscribeSync = subscribeToSyncEvents((event) => {
+      if (event.type === 'ASSIGNMENT_DELETED') {
+        const deletedId = event.assignmentId;
+        setAssignments((prev) => prev.filter((a) => a.id !== deletedId));
+        setSubmissions((prev) => prev.filter((s) => s.assignmentId !== deletedId));
+        try {
+          const stored = localStorage.getItem(DELETED_ASSIGNMENTS_KEY);
+          const currentDeleted = stored ? (JSON.parse(stored) as string[]) : [];
+          if (!currentDeleted.includes(deletedId)) {
+            currentDeleted.push(deletedId);
+            localStorage.setItem(DELETED_ASSIGNMENTS_KEY, JSON.stringify(currentDeleted));
+          }
+        } catch {}
+      }
+    });
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === DELETED_ASSIGNMENTS_KEY && e.newValue) {
+        try {
+          const deletedIds = JSON.parse(e.newValue) as string[];
+          if (Array.isArray(deletedIds)) {
+            setAssignments((prev) => prev.filter((a) => !deletedIds.includes(a.id)));
+            setSubmissions((prev) => prev.filter((s) => !deletedIds.includes(s.assignmentId)));
+          }
+        } catch {}
+      } else if (e.key === LOCAL_ASSIGNMENTS_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue) as Assignment[];
+          const storedDeleted = localStorage.getItem(DELETED_ASSIGNMENTS_KEY);
+          const deletedIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
+          if (Array.isArray(parsed)) {
+            setAssignments(parsed.filter((a) => !deletedIds.includes(a.id) && (a as any).status !== 'deleted'));
+          }
+        } catch {}
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      unsubscribeSync();
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
   // Connect to Firestore and start real-time listeners
   useEffect(() => {
     let unsubscribeUsers: (() => void) | undefined;
     let unsubscribeAssignments: (() => void) | undefined;
     let unsubscribeSubmissions: (() => void) | undefined;
+    let unsubscribeDeletedAssignments: (() => void) | undefined;
 
     async function initFirebase() {
       const connected = await testConnection();
@@ -199,6 +250,34 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       // Seed if Firestore has no documents yet
       await seedFirestoreIfEmpty();
+
+      // Listen to real-time changes from Firestore for Deleted Assignments registry
+      unsubscribeDeletedAssignments = subscribeToDeletedAssignments((freshDeletedIds) => {
+        if (freshDeletedIds && freshDeletedIds.length > 0) {
+          try {
+            const storedDeleted = localStorage.getItem(DELETED_ASSIGNMENTS_KEY);
+            const currentDeleted = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
+            const mergedDeleted = Array.from(new Set([...currentDeleted, ...freshDeletedIds]));
+            localStorage.setItem(DELETED_ASSIGNMENTS_KEY, JSON.stringify(mergedDeleted));
+
+            setAssignments((prev) => {
+              const filtered = prev.filter((a) => !mergedDeleted.includes(a.id));
+              try {
+                localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(filtered));
+              } catch {}
+              return filtered;
+            });
+
+            setSubmissions((prev) => {
+              const filtered = prev.filter((s) => !mergedDeleted.includes(s.assignmentId));
+              try {
+                localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(filtered));
+              } catch {}
+              return filtered;
+            });
+          } catch {}
+        }
+      });
 
       // Listen to real-time changes from Firestore
       unsubscribeUsers = subscribeToUsers((freshUsers) => {
@@ -246,47 +325,75 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const deletedIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
 
           setAssignments((prev) => {
+            // Check for in-flight locally created assignments (within 15s) that haven't landed yet
+            const inFlightLocal = prev.filter(
+              (a) =>
+                (a as any)._localPendingSync &&
+                Date.now() - (a as any)._localPendingSync < 15000 &&
+                !deletedIds.includes(a.id) &&
+                (a as any).status !== 'deleted'
+            );
+
+            // Authoritative list is freshAssignments from Firestore
             const map = new Map<string, Assignment>();
-            for (const a of prev) {
-              if (!deletedIds.includes(a.id)) {
-                map.set(a.id, a);
-              }
-            }
+
+            // 1. Add all active assignments from Firestore (excluding deletedIds and status === 'deleted')
             for (const a of freshAssignments) {
-              if (!deletedIds.includes(a.id)) {
+              if (!deletedIds.includes(a.id) && (a as any).status !== 'deleted' && !(a as any).isDeleted) {
                 map.set(a.id, a);
               }
             }
+
+            // 2. Keep local in-flight creations that haven't synced to Firestore yet
+            for (const a of inFlightLocal) {
+              if (!map.has(a.id) && !deletedIds.includes(a.id)) {
+                map.set(a.id, a);
+              }
+            }
+
             const merged = Array.from(map.values());
             merged.sort(
               (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
             );
+
             try {
               localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(merged));
             } catch {}
+
             return merged;
           });
         } catch {
           if (freshAssignments.length > 0) {
-            setAssignments(freshAssignments);
+            setAssignments(freshAssignments.filter((a) => (a as any).status !== 'deleted'));
           }
         }
       });
 
       unsubscribeSubmissions = subscribeToSubmissions((freshSubmissions) => {
-        setSubmissions((prev) => {
-          const map = new Map<string, Submission>();
-          for (const s of prev) map.set(s.id, s);
-          for (const s of freshSubmissions) map.set(s.id, s);
-          const merged = Array.from(map.values());
-          merged.sort(
-            (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
-          );
-          try {
-            localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(merged));
-          } catch {}
-          return merged;
-        });
+        try {
+          const storedDeleted = localStorage.getItem(DELETED_ASSIGNMENTS_KEY);
+          const deletedIds = storedDeleted ? (JSON.parse(storedDeleted) as string[]) : [];
+
+          setSubmissions((prev) => {
+            const map = new Map<string, Submission>();
+            for (const s of prev) {
+              if (!deletedIds.includes(s.assignmentId)) map.set(s.id, s);
+            }
+            for (const s of freshSubmissions) {
+              if (!deletedIds.includes(s.assignmentId)) map.set(s.id, s);
+            }
+            const merged = Array.from(map.values());
+            merged.sort(
+              (a, b) => new Date(b.submittedAt || 0).getTime() - new Date(a.submittedAt || 0).getTime()
+            );
+            try {
+              localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        } catch {
+          setSubmissions(freshSubmissions);
+        }
       });
     }
 
@@ -296,6 +403,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (unsubscribeUsers) unsubscribeUsers();
       if (unsubscribeAssignments) unsubscribeAssignments();
       if (unsubscribeSubmissions) unsubscribeSubmissions();
+      if (unsubscribeDeletedAssignments) unsubscribeDeletedAssignments();
     };
   }, []);
 
@@ -443,8 +551,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const addAssignment = async (newAssignment: Assignment) => {
+    const stampedAssignment: Assignment = {
+      ...newAssignment,
+      ...({ _localPendingSync: Date.now() } as any),
+    };
     setAssignments((prev) => {
-      const next = [newAssignment, ...prev.filter((a) => a.id !== newAssignment.id)];
+      const next = [stampedAssignment, ...prev.filter((a) => a.id !== newAssignment.id)];
       try {
         localStorage.setItem(LOCAL_ASSIGNMENTS_KEY, JSON.stringify(next));
       } catch {}
@@ -465,6 +577,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const deleteAssignment = async (assignmentId: string) => {
+    // 0. Instantly broadcast to all other open tabs/windows
+    broadcastSyncEvent({ type: 'ASSIGNMENT_DELETED', assignmentId });
+
     // 1. Update assignments state & localStorage
     setAssignments((prev) => {
       const next = prev.filter((a) => a.id !== assignmentId);
@@ -492,7 +607,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return next;
     });
 
-    // 3. Delete from Firestore
+    // 3. Delete from Firestore and notify all real-time connected devices
     await deleteAssignmentFromFirestore(assignmentId);
   };
 

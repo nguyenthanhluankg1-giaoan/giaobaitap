@@ -35,7 +35,7 @@ service cloud.firestore {
              data.title is string && data.title.size() > 0 && data.title.size() <= 256 &&
              data.subject is string && data.subject.size() > 0 &&
              data.totalPoints is number && data.totalPoints >= 0 &&
-             data.status in ['published', 'draft'];
+             data.status in ['published', 'draft', 'deleted'];
     }
 
     // Validation for Submission document
@@ -74,6 +74,11 @@ service cloud.firestore {
       allow create: if isValidId(submissionId) && isValidSubmission(incoming()) && incoming().id == submissionId;
       allow update: if isValidId(submissionId) && isValidSubmission(incoming()) && incoming().id == existing().id;
       allow delete: if isValidId(submissionId);
+    }
+
+    // Deleted Records Collection for global realtime sync across all users & devices
+    match /deleted_records/{docId} {
+      allow get, list, write: if isValidId(docId);
     }
 
     // Test connection doc used on boot

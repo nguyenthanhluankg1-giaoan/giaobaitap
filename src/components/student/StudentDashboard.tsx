@@ -25,17 +25,51 @@ export const StudentDashboard: React.FC = () => {
     assignment: Assignment;
     submission: Submission;
   } | null>(null);
+  const [deletedToast, setDeletedToast] = useState<string | null>(null);
+
+  // Real-time auto-close if the assignment currently being worked on is deleted by the teacher
+  React.useEffect(() => {
+    if (takingAssignment) {
+      const stillExists = assignments.some(
+        (a) => a.id === takingAssignment.id && (a as any).status !== 'deleted' && !(a as any).isDeleted
+      );
+      if (!stillExists) {
+        setTakingAssignment(null);
+        setDeletedToast(
+          `Bài tập "${takingAssignment.title}" vừa được Giáo viên thu hồi/xóa khỏi hệ thống. Bài thi đã tự động đóng lại.`
+        );
+        setTimeout(() => setDeletedToast(null), 6000);
+      }
+    }
+  }, [assignments, takingAssignment]);
+
+  // Real-time auto-close if the viewing result modal assignment was deleted
+  React.useEffect(() => {
+    if (viewingResult) {
+      const stillExists = assignments.some(
+        (a) => a.id === viewingResult.assignment.id && (a as any).status !== 'deleted' && !(a as any).isDeleted
+      );
+      if (!stillExists) {
+        setViewingResult(null);
+        setDeletedToast(
+          `Bài tập "${viewingResult.assignment.title}" đã được Giáo viên xóa khỏi hệ thống.`
+        );
+        setTimeout(() => setDeletedToast(null), 5000);
+      }
+    }
+  }, [assignments, viewingResult]);
 
   if (!currentUser) return null;
 
   // Student's submissions
   const mySubmissions = submissions.filter((s) => s.studentId === currentUser.id);
 
-  // Categorize assignments
+  // Categorize assignments (filtering out any deleted assignments)
   const completedAssignments: Array<{ assignment: Assignment; submission: Submission }> = [];
   const pendingAssignments: Assignment[] = [];
 
   assignments.forEach((assignment) => {
+    if ((assignment as any).status === 'deleted' || (assignment as any).isDeleted) return;
     const sub = mySubmissions.find((s) => s.assignmentId === assignment.id);
     if (sub) {
       completedAssignments.push({ assignment, submission: sub });
@@ -332,6 +366,26 @@ export const StudentDashboard: React.FC = () => {
           isOpen={!!viewingResult}
           onClose={() => setViewingResult(null)}
         />
+      )}
+
+      {/* Floating Notice when Teacher deletes an assignment in real-time */}
+      {deletedToast && (
+        <div className="fixed bottom-5 right-5 left-5 sm:left-auto z-50 bg-slate-900/95 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-700 backdrop-blur-md animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+            <AlertCircle className="w-4 h-4 text-rose-400" />
+          </div>
+          <div className="flex-1 text-xs">
+            <div className="font-bold text-amber-300">Thông báo từ Giáo viên</div>
+            <div className="text-slate-200 mt-0.5">{deletedToast}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDeletedToast(null)}
+            className="p-1 text-slate-400 hover:text-white rounded-lg text-xs"
+          >
+            Đóng
+          </button>
+        </div>
       )}
     </div>
   );

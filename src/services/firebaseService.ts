@@ -4,8 +4,12 @@ import {
   setDoc,
   deleteDoc,
   getDocs,
+  getDoc,
   onSnapshot,
   writeBatch,
+  arrayUnion,
+  query,
+  where,
 } from 'firebase/firestore';
 import { db } from '../firebase.ts';
 import { User, Assignment, Submission } from '../types/index.ts';
@@ -32,6 +36,7 @@ const COLLECTIONS = {
   USERS: 'users',
   ASSIGNMENTS: 'assignments',
   SUBMISSIONS: 'submissions',
+  DELETED_RECORDS: 'deleted_records',
 };
 
 /**
@@ -115,6 +120,18 @@ export function subscribeToSubmissions(
  */
 export async function seedFirestoreIfEmpty(): Promise<void> {
   try {
+    // 1. Fetch any already deleted assignment IDs so we never resurrect them
+    let deletedAssignmentIds: string[] = [];
+    try {
+      const deletedSnap = await getDoc(doc(db, COLLECTIONS.DELETED_RECORDS, 'assignments'));
+      if (deletedSnap.exists()) {
+        const data = deletedSnap.data();
+        if (Array.isArray(data?.ids)) {
+          deletedAssignmentIds = data.ids;
+        }
+      }
+    } catch {}
+
     const userSnap = await getDocs(collection(db, COLLECTIONS.USERS));
     if (userSnap.empty) {
       console.log('Seeding initial users to Firestore...');
@@ -146,8 +163,10 @@ export async function seedFirestoreIfEmpty(): Promise<void> {
       console.log('Seeding initial assignments to Firestore...');
       const batch = writeBatch(db);
       for (const assignment of INITIAL_ASSIGNMENTS) {
-        const ref = doc(db, COLLECTIONS.ASSIGNMENTS, assignment.id);
-        batch.set(ref, sanitizeForFirestore(assignment));
+        if (!deletedAssignmentIds.includes(assignment.id)) {
+          const ref = doc(db, COLLECTIONS.ASSIGNMENTS, assignment.id);
+          batch.set(ref, sanitizeForFirestore(assignment));
+        }
       }
       await batch.commit();
     }
@@ -157,13 +176,83 @@ export async function seedFirestoreIfEmpty(): Promise<void> {
       console.log('Seeding initial submissions to Firestore...');
       const batch = writeBatch(db);
       for (const sub of INITIAL_SUBMISSIONS) {
-        const ref = doc(db, COLLECTIONS.SUBMISSIONS, sub.id);
-        batch.set(ref, sanitizeForFirestore(sub));
+        if (!deletedAssignmentIds.includes(sub.assignmentId)) {
+          const ref = doc(db, COLLECTIONS.SUBMISSIONS, sub.id);
+          batch.set(ref, sanitizeForFirestore(sub));
+        }
       }
       await batch.commit();
     }
   } catch (err) {
     console.error('Error during initial seed to Firestore:', err);
+  }
+}
+
+/**
+ * Record deleted assignment ID in Firestore so all devices/students receive realtime deletion notice
+ */
+export async function recordDeletedAssignmentInFirestore(assignmentId: string): Promise<void> {
+  const path = `${COLLECTIONS.DELETED_RECORDS}/assignments`;
+  try {
+    const docRef = doc(db, COLLECTIONS.DELETED_RECORDS, 'assignments');
+    await setDoc(
+      docRef,
+      {
+        ids: arrayUnion(assignmentId),
+        lastDeletedId: assignmentId,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    console.warn('Notice when saving deleted assignment id to Firestore:', error);
+  }
+}
+
+/**
+ * Real-time listener for Deleted Assignments registry across all devices
+ */
+export function subscribeToDeletedAssignments(
+  onData: (deletedIds: string[]) => void,
+  onError?: (err: any) => void
+) {
+  const docRef = doc(db, COLLECTIONS.DELETED_RECORDS, 'assignments');
+  return onSnapshot(
+    docRef,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const ids = (docSnap.data()?.ids as string[]) || [];
+        onData(ids);
+      } else {
+        onData([]);
+      }
+    },
+    (error) => {
+      console.warn('Realtime listener for deleted assignments notice:', error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+/**
+ * Delete all submissions associated with an assignment from Firestore
+ */
+export async function deleteSubmissionsForAssignmentFromFirestore(assignmentId: string): Promise<void> {
+  try {
+    const q = query(
+      collection(db, COLLECTIONS.SUBMISSIONS),
+      where('assignmentId', '==', assignmentId)
+    );
+    const snaps = await getDocs(q);
+    if (!snaps.empty) {
+      const batch = writeBatch(db);
+      snaps.forEach((docSnap) => {
+        batch.delete(docSnap.ref);
+      });
+      await batch.commit();
+    }
+  } catch (err) {
+    console.error('Notice deleting submissions for assignment:', err);
   }
 }
 
@@ -207,11 +296,18 @@ export async function saveAssignmentToFirestore(assignment: Assignment): Promise
 }
 
 /**
- * Delete assignment from Firestore
+ * Delete assignment from Firestore with cascading deletion of submissions and realtime deleted broadcast
  */
 export async function deleteAssignmentFromFirestore(assignmentId: string): Promise<void> {
   const path = `${COLLECTIONS.ASSIGNMENTS}/${assignmentId}`;
   try {
+    // 1. Immediately record in global deleted registry so real-time listeners trigger everywhere
+    await recordDeletedAssignmentInFirestore(assignmentId);
+
+    // 2. Cascade delete all related student submissions from Firestore
+    await deleteSubmissionsForAssignmentFromFirestore(assignmentId);
+
+    // 3. Delete assignment document itself
     const docRef = doc(db, COLLECTIONS.ASSIGNMENTS, assignmentId);
     await deleteDoc(docRef);
   } catch (error) {
